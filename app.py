@@ -3,6 +3,7 @@ import time
 import pandas as pd
 from datetime import datetime
 from angel_data import get_connection, get_nifty_price, get_banknifty_price, get_sensex_price
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="SAGAR AI TRADER", layout="wide")
 st.title("🤖 SAGAR AI TRADER - Paper Trading")
@@ -49,8 +50,36 @@ c3.metric("SENSEX", sensex)
 # History madhe tak
 if nifty:
     st.session_state.history.append({"time": datetime.now(), "nifty": nifty, "bank": bank, "sensex": sensex})
-    # Fakt shevatche 20 record thev
-    st.session_state.history = st.session_state.history[-20:]
+    st.session_state.history = st.session_state.history[-50:]
+
+# --- 🚥 SIGNAL CHART - NAVIN ---
+st.subheader("🚥 Signal Chart - Nifty + Levels")
+
+# Level Signal Logic
+level_signal = "🟡 WAIT - 25200 te 25300 madhye"
+level_color = "orange"
+if nifty and nifty < 25200:
+    level_signal = "🔴 PUT SIGNAL - 25200 chya KHALI - 25200 PE BUY"
+    level_color = "red"
+elif nifty and nifty > 25300:
+    level_signal = "🟢 NO TRADE - 25300 chya VAR - Breakdown Fail"
+    level_color = "green"
+
+st.markdown(f"<h3 style='color:{level_color}'>{level_signal}</h3>", unsafe_allow_html=True)
+
+if st.session_state.history:
+    df = pd.DataFrame(st.session_state.history)
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=df["time"], y=df["nifty"], mode='lines+markers', name='Nifty', line=dict(color='blue', width=3)))
+    # Levels
+    fig.add_hline(y=25300, line_dash="dash", line_color="red", annotation_text="Resistance 25300")
+    fig.add_hline(y=25200, line_dash="dash", line_color="green", annotation_text="Support 25200")
+    # Aajcha tuzha profit level
+    fig.add_hline(y=25226, line_dash="dot", line_color="purple", annotation_text="Tuza Exit 25226")
+    fig.update_layout(title="Nifty Live + Levels", yaxis_title="Price", height=400)
+    st.plotly_chart(fig, use_container_width=True)
+else:
+    st.write("Chart sathi thoda data yevu de, Refresh dab.")
 
 # --- AI DECISION LOGIC ---
 signal = "WAIT - NO TRADE"
@@ -66,7 +95,6 @@ if len(st.session_state.history) >= 3 and st.session_state.ai_on:
     nifty_up = curr > prev
     bank_up = curr_bank > prev_bank
 
-    # Risk Manager - Tota jast zala tar STOP
     if st.session_state.day_pnl <= -max_loss:
         signal = "🛑 AI STOPPED - Aajcha Tota Limit Sampala"
         reason = f"Day PNL {st.session_state.day_pnl} - Aata trade nahi"
@@ -110,10 +138,6 @@ if st.session_state.trades:
     st.write(f"**Day PNL (Paper): Rs {st.session_state.day_pnl}**")
 else:
     st.write("Ajun kuthla trade nahi.")
-
-st.subheader("📈 Price History")
-if st.session_state.history:
-    st.line_chart(pd.DataFrame(st.session_state.history).set_index("time")[["nifty"]])
 
 st.caption("⚠️ He fakt shiknyasathi Paper Trading aahe. Khara paisa lavnyapurvi 7 divas AI la bagh. Market madhe tota hou shakto.")
 st.button("🔄 Refresh")
