@@ -8,18 +8,15 @@ from SmartApi import SmartConnect
 st.set_page_config(page_title="SAGAR AUTO TRADER - MULTI", layout="wide")
 st.title("SAGAR AUTO TRADER - NIFTY + CRUDE + GOLD")
 
-# ============ 1. INSTRUMENT SELECT ============
 INSTRUMENT = st.selectbox("Instrument Nivad:", ["NIFTY", "CRUDEOIL MINI", "GOLD MINI"])
 
-# Pratyekacha setting vegla
 CONFIG = {
-    "NIFTY": {"exchange": "NSE", "token": "26000", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "symbol_prefix": "NIFTY"},
-    "CRUDEOIL MINI": {"exchange": "MCX", "token": "23507", "strike_step": 50, "qty": 10, "opt_exchange": "MCX", "symbol_prefix": "CRUDEOILM"},
-    "GOLD MINI": {"exchange": "MCX", "token": "23523", "strike_step": 100, "qty": 1, "opt_exchange": "MCX", "symbol_prefix": "GOLDM"},
+    "NIFTY": {"exchange": "NSE", "search": "NIFTY", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "symbol_prefix": "NIFTY"},
+    "CRUDEOIL MINI": {"exchange": "MCX", "search": "CRUDEOILM", "strike_step": 50, "qty": 10, "opt_exchange": "MCX", "symbol_prefix": "CRUDEOILM"},
+    "GOLD MINI": {"exchange": "MCX", "search": "GOLDM", "strike_step": 100, "qty": 1, "opt_exchange": "MCX", "symbol_prefix": "GOLDM"},
 }
 cfg = CONFIG[INSTRUMENT]
 
-# ============ 2. RISK ============
 st.sidebar.header("⚠️ RISK CONTROL")
 LIVE_MODE = st.sidebar.toggle("🔴 LIVE TRADING ON", value=False)
 MAX_LOSS_DAY = st.sidebar.number_input("Max Loss / Day ₹", value=500)
@@ -32,14 +29,12 @@ st.sidebar.write(f"Instrument: {INSTRUMENT} | Qty: {QTY}")
 if 'killed' not in st.session_state: st.session_state['killed'] = False
 if 'trades' not in st.session_state: st.session_state['trades'] = 0
 if 'pnl' not in st.session_state: st.session_state['pnl'] = 0
-
 if st.sidebar.button("🛑 KILL SWITCH", type="primary"):
     st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON")
     st.stop()
 
-# ============ 3. ANGEL CONNECT ============
 def get_connection():
     try:
         smart = SmartConnect(api_key=st.secrets["ANGEL_API_KEY"])
@@ -52,54 +47,68 @@ def get_connection():
         st.error(f"Login Error: {e}")
         return None
 
-# ============ 4. ATM OPTION ============
-def get_atm_option(smart, signal):
-    ltp = smart.ltpData(cfg["exchange"], cfg["symbol_prefix"] if INSTRUMENT!="NIFTY" else "NIFTY", cfg["token"])['data']['ltp']
+# --- NAVIN FIX: Token search karun ghe ---
+def get_underlying_token(smart):
+    if INSTRUMENT == "NIFTY":
+        return "26000", "NIFTY"
+    # MCX sathi FUTCOM shodh
+    try:
+        res = smart.searchScrip(cfg["exchange"], cfg["search"])
+        # res['data'] madhe sagle contracts yetat, FUTCOM / FUTCOM wala ghe
+        for item in res['data']:
+            sym = item.get('tradingsymbol','')
+            # CRUDEOILM + date sarkha - FUTURE, CE/PE naslela
+            if sym.startswith(cfg["search"]) and 'CE' not in sym and 'PE' not in sym:
+                # Expiry javalchi ghe - pahila milala to ghe
+                st.info(f"Underlying milala: {sym} Token: {item['symboltoken']}")
+                return item['symboltoken'], sym
+        # Jar varcha nahi milala tar pahila item ghe
+        if res['data']:
+            return res['data'][0]['symboltoken'], res['data'][0]['tradingsymbol']
+    except Exception as e:
+        st.error(f"Token search fail: {e}")
+    return None, None
+
+def get_atm_option(smart, signal, underlying_ltp):
+    ltp = underlying_ltp
     atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
-    
-    # Expiry: NIFTY = ya athvadyatla Thursday, MCX = pudhcha mahinyachi 19 tarikh javalpas (Angel search ne shodhu)
     today = datetime.now()
     if INSTRUMENT == "NIFTY":
         days_ahead = (3 - today.weekday()) % 7
         if days_ahead == 0 and today.hour >= 15: days_ahead = 7
         expiry = today + timedelta(days=days_ahead)
     else:
-        # MCX sathi pudhche 20 divas madhe expiry ghe - search ne milvel
         expiry = today + timedelta(days=20)
-    
     expiry_str = expiry.strftime("%d%b%y").upper()
     opt_type = "CE" if signal == "BUY" else "PE"
-    
-    # MCX symbol: CRUDEOILM19DEC256500CE, GOLDM05DEC2580000CE sarkha
-    # NIFTY symbol: NIFTY20NOV2526000CE
     symbol_try = f"{cfg['symbol_prefix']}{expiry_str}{atm}{opt_type}"
     try:
         res = smart.searchScrip(cfg["opt_exchange"], symbol_try)
         if res['data']:
-            token = res['data'][0]['symboltoken']
-            return symbol_try, token, atm, ltp
+            return symbol_try, res['data'][0]['symboltoken'], atm, ltp
     except: pass
-    
-    # Jar exact expiry milala nahi tar fakt prefix ne shodh - saglyat javalchi expiry ghe
+    # Fallback - javalchi expiry shodh
     try:
-        res = smart.searchScrip(cfg["opt_exchange"], f"{cfg['symbol_prefix']}{atm}{opt_type}")
-        # Ki fakt symbol prefix ne
         res2 = smart.searchScrip(cfg["opt_exchange"], cfg['symbol_prefix'])
-        for item in res2['data'][:20]:
+        for item in res2['data']:
             if str(atm) in item['tradingsymbol'] and opt_type in item['tradingsymbol']:
                 return item['tradingsymbol'], item['symboltoken'], atm, ltp
     except Exception as e:
         st.error(f"Symbol shodh fail: {e}")
-    st.error(f"Symbol sapadla nahi: {symbol_try} - Expiry badla lagel")
+    st.error(f"Symbol sapadla nahi: {symbol_try}")
     return None, None, atm, ltp
 
-# ============ 5. STRATEGY ============
 def get_signal(smart):
+    token, sym_name = get_underlying_token(smart)
+    if not token:
+        st.error("Underlying Token milala nahi!")
+        return "WAIT", None, pd.DataFrame()
+
     to_date = datetime.now()
     from_date = to_date - timedelta(days=10)
     params = {
         "exchange": cfg["exchange"],
-        "symboltoken": cfg["token"],
+        "symboltoken": token,
         "interval": "FIFTEEN_MINUTE",
         "fromdate": from_date.strftime("%Y-%m-%d %H:%M"),
         "todate": to_date.strftime("%Y-%m-%d %H:%M")
@@ -110,7 +119,7 @@ def get_signal(smart):
         st.error(f"Candle Error: {e}")
         return "WAIT", None, pd.DataFrame()
     if not hist or not hist.get('data') or len(hist['data']) == 0:
-        st.error(f"Candle Data rikama! {hist}")
+        st.error(f"Candle Data rikama! Token: {token} Symbol: {sym_name} Reply: {hist}")
         return "WAIT", None, pd.DataFrame()
 
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
@@ -129,12 +138,11 @@ def get_signal(smart):
     else:
         return "WAIT", last, df
 
-# ============ 6. ORDER ============
-def place_order(smart, signal):
+def place_order(smart, signal, underlying_ltp):
     if st.session_state['trades'] >= MAX_TRADES:
         st.warning("Max Trades zale!")
         return
-    symbol, token, atm, ltp = get_atm_option(smart, signal)
+    symbol, token, atm, ltp = get_atm_option(smart, signal, underlying_ltp)
     if not token: return
     opt_ltp = smart.ltpData(cfg["opt_exchange"], symbol, token)['data']['ltp']
     st.info(f"{INSTRUMENT} LTP: {ltp} | ATM: {atm} | Symbol: {symbol} | Premium: ₹{opt_ltp} | Qty: {QTY}")
@@ -157,7 +165,6 @@ def place_order(smart, signal):
     except Exception as e:
         st.error(f"Order Fail: {e}")
 
-# ============ 7. MAIN ============
 if st.button("🚀 Connect + Signal Check + Trade", type="primary"):
     smart = get_connection()
     if smart:
@@ -172,12 +179,12 @@ if st.button("🚀 Connect + Signal Check + Trade", type="primary"):
         c4.metric("VWAP", f"{last['vwap']:.1f}")
         if signal == "BUY":
             st.success(f"### SIGNAL: BUY - CALL (CE) - {INSTRUMENT}")
-            place_order(smart, "BUY")
+            place_order(smart, "BUY", last['close'])
         elif signal == "SELL":
             st.error(f"### SIGNAL: SELL - PUT (PE) - {INSTRUMENT}")
-            place_order(smart, "SELL")
+            place_order(smart, "SELL", last['close'])
         else:
             st.warning("### SIGNAL: WAIT")
         st.line_chart(df.set_index('datetime')[['close','ema9','ema21','vwap']].tail(50))
 
-st.caption("NIFTY 25 Qty | CRUDE MINI 10 Qty | GOLD MINI 1 Qty. MCX ratri 11:30 paryant chalto, NIFTY 3:30 la band.")
+st.caption("NIFTY 25 Qty | CRUDE MINI 10 Qty | GOLD MINI 1 Qty.")
