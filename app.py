@@ -8,9 +8,10 @@ import requests
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
+import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO 1-SEC", layout="wide")
-st.title("🤖 SAGAR AI PRO - 1 SEC LIVE - NO PAGE REFRESH")
+st.set_page_config(page_title="SAGAR AI PRO - TRADINGVIEW", layout="wide")
+st.title("🤖 SAGAR AI PRO - TRADINGVIEW CHART")
 
 INSTRUMENT = st.selectbox("Instrument:", ["NIFTY", "CRUDEOIL MINI", "GOLD MINI"])
 CONFIG = {
@@ -28,9 +29,9 @@ TARGET_POINTS = st.sidebar.number_input("Target Points", value=50)
 MAX_TRADES = st.sidebar.number_input("Max Trades / Day", value=2)
 if 'trades' not in st.session_state: st.session_state['trades'] = 0
 if 'killed' not in st.session_state: st.session_state['killed'] = False
-if 'price_history' not in st.session_state: st.session_state['price_history'] = []
 if 'cached_ai' not in st.session_state: st.session_state['cached_ai'] = None
 if 'last_study' not in st.session_state: st.session_state['last_study'] = 0
+if 'live_hist' not in st.session_state: st.session_state['live_hist'] = []
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
@@ -81,11 +82,11 @@ def news_sentiment(news_list):
             if w in tl: s-=1
     return s
 
-def do_full_study(smart, token, sym_name):
-    # Purna study - 30 sec la ekda
-    to_date = datetime.now(); from_date = to_date - timedelta(days=10)
+def do_full_study(smart, token):
+    to_date = datetime.now(); from_date = to_date - timedelta(days=3)
     hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
+    df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
     df['ema21']=df['close'].ewm(span=21, adjust=False).mean()
     e12=df['close'].ewm(span=12, adjust=False).mean(); e26=df['close'].ewm(span=26, adjust=False).mean()
@@ -113,6 +114,39 @@ def do_full_study(smart, token, sym_name):
     else: final="WAIT"
     return {"score":score,"final":final,"reasons":reasons,"news":news,"n_score":n_score,"df":df,"last":last,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max()}
 
+def make_tradingview_chart(df, live_price=None):
+    # TradingView sarkha - Kala background, Lal/Hirvya Candles
+    fig = go.Figure()
+    # Candles
+    fig.add_trace(go.Candlestick(
+        x=df['datetime'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
+        increasing_line_color='#26A69A', increasing_fillcolor='#26A69A',
+        decreasing_line_color='#EF5350', decreasing_fillcolor='#EF5350',
+        name='Candles'
+    ))
+    # EMA 9 - Pivla
+    fig.add_trace(go.Scatter(x=df['datetime'], y=df['ema9'], line=dict(color='#FFD700', width=1.5), name='EMA 9'))
+    # EMA 21 - Nila
+    fig.add_trace(go.Scatter(x=df['datetime'], y=df['ema21'], line=dict(color='#2962FF', width=1.5), name='EMA 21'))
+    # VWAP - Pandhra dotted
+    fig.add_trace(go.Scatter(x=df['datetime'], y=df['vwap'], line=dict(color='white', width=1, dash='dot'), name='VWAP'))
+    # Volume - Khali
+    colors = ['#26A69A' if c >= o else '#EF5350' for c,o in zip(df['close'], df['open'])]
+    fig.add_trace(go.Bar(x=df['datetime'], y=df['volume'], marker_color=colors, opacity=0.5, name='Volume', yaxis='y2'))
+    fig.update_layout(
+        template='plotly_dark',
+        paper_bgcolor='#131722', plot_bgcolor='#131722',
+        font=dict(color='white'),
+        xaxis=dict(gridcolor='#1E222D', rangeslider=dict(visible=False)),
+        yaxis=dict(gridcolor='#1E222D', side='right'),
+        yaxis2=dict(overlaying='y', side='left', showgrid=False, position=0),
+        height=500,
+        margin=dict(l=0, r=50, t=10, b=0),
+        legend=dict(orientation='h', y=1.02, x=0),
+        hovermode='x unified'
+    )
+    return fig
+
 def get_atm_option(smart, signal, ltp):
     atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
     otype = "CE" if signal=="BUY" else "PE"
@@ -134,27 +168,26 @@ def get_atm_option(smart, signal, ltp):
     if cands: return cands[0]['tradingsymbol'], cands[0]['symboltoken'], atm
     return None,None,atm
 
-# --- MAIN STATIC PART - Ha ekdach load honar, parat nahi halnar ---
+# --- MAIN ---
 smart = get_connection()
 if not smart:
     st.error("Login Fail"); st.stop()
 token, sym_name = get_underlying(smart)
 
-# Purna Study - Fakt 30 sec la ekda
 if time.time() - st.session_state['last_study'] > 30 or st.session_state['cached_ai'] is None:
     try:
-        st.session_state['cached_ai'] = do_full_study(smart, token, sym_name)
+        st.session_state['cached_ai'] = do_full_study(smart, token)
         st.session_state['last_study'] = time.time()
-    except Exception as e:
-        st.warning(f"Study Error: {e}")
+    except Exception as e: st.warning(f"Study Error: {e}")
 
 ai = st.session_state['cached_ai']
 if ai:
-    st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} | 🧠 AI Study: 30 sec la update")
-    c1,c2,c3 = st.columns(3)
+    st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🧠 AI 30 sec la update")
+    c1,c2,c3,c4 = st.columns(4)
     c1.metric("AI SCORE", f"{ai['score']}/100", ai['final'])
     c2.metric("RSI", f"{ai['last']['rsi']:.1f}")
-    c3.metric("Support / Resistance", f"{ai['sup']:.0f} / {ai['resi']:.0f}")
+    c3.metric("Support", f"₹{ai['sup']:.2f}")
+    c4.metric("Resistance", f"₹{ai['resi']:.2f}")
     if ai['final']=="BUY": st.success(f"### 🟢 BUY CALL (CE) - Score {ai['score']}/100")
     elif ai['final']=="SELL": st.error(f"### 🔴 SELL PUT (PE) - Score {ai['score']}/100")
     else: st.warning(f"### 🟡 WAIT - Score {ai['score']}/100")
@@ -166,59 +199,67 @@ if ai:
         st.write("**📰 NEWS:**")
         for n in ai['news']: st.write(f"- {n}")
 
-# --- LIVE 1 SEC FRAGMENT - Fakt ha bhag halel, baki page nahi ---
+# --- TRADINGVIEW CHART + 1 SEC LIVE - Fakt ha bhag halel ---
 @st.fragment(run_every=1)
-def live_price_box():
+def live_chart_box():
     try:
         s = get_connection()
         ltp = s.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
-        # History madhe add kar - chart sathi
-        st.session_state['price_history'].append({"time": datetime.now().strftime("%H:%M:%S"), "price": ltp})
-        if len(st.session_state['price_history']) > 60:
-            st.session_state['price_history'] = st.session_state['price_history'][-60:]
-        ph = pd.DataFrame(st.session_state['price_history'])
+        # Live candle update - shevatchi candle live halav
+        df = ai['df'].copy() if ai else pd.DataFrame()
+        if not df.empty:
+            # Shevatchi candle cha close = live price
+            df.loc[df.index[-1], 'close'] = ltp
+            df.loc[df.index[-1], 'high'] = max(df.loc[df.index[-1], 'high'], ltp)
+            df.loc[df.index[-1], 'low'] = min(df.loc[df.index[-1], 'low'], ltp)
         c1,c2 = st.columns([1,3])
         with c1:
-            st.metric(f"{INSTRUMENT} LIVE ⚡ 1 SEC", f"₹{ltp:.2f}", f"{ltp - ph['price'].iloc[0]:.2f}" if len(ph)>1 else "")
-            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')} - Page refresh nahi hot")
+            st.metric(f"{INSTRUMENT} LIVE ⚡", f"₹{ltp:.2f}")
+            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')} - Page refresh nahi")
         with c2:
-            # LIVE CHART - Fakt ha chart halel
-            if len(ph) > 1:
-                st.line_chart(ph.set_index("time")["price"], height=180)
-            else:
-                st.write("Live price yetoy... 1 sec thamb")
+            st.write(f"**{INSTRUMENT} · {cfg['exchange']} · 15m**")
+        if not df.empty:
+            fig = make_tradingview_chart(df.tail(60), ltp)
+            st.plotly_chart(fig, use_container_width=True, key=f"tv_{datetime.now().strftime('%H%M%S')}")
     except Exception as e:
-        st.write(f"Live price wait... {e}")
+        st.write(f"Chart load hotoy... {e}")
 
 st.divider()
-st.subheader("📈 LIVE PRICE + CHART - 1 SEC (Page Refresh Nahi Honar)")
-live_price_box()
+st.subheader(f"📈 {INSTRUMENT} - TRADINGVIEW CHART - 15m - LIVE 1 SEC")
+live_chart_box()
 
-# --- TRADE BUTTON - Static, halnar nahi ---
+# --- TRADE BUTTONS - Tuzya screenshot sarkhe ---
 st.divider()
 if ai and ai['final']!="WAIT":
-    if st.button(f"🚀 TRADE GHE - {ai['final']} - {INSTRUMENT}", type="primary"):
+    col_buy, col_put = st.columns(2)
+    with col_buy:
+        if st.button("⬆️ BUY CALL", type="primary", use_container_width=True):
+            st.session_state['manual_signal'] = "BUY"
+    with col_put:
+        if st.button("⬇️ BUY PUT", type="primary", use_container_width=True):
+            st.session_state['manual_signal'] = "SELL"
+    sig = st.session_state.get('manual_signal', ai['final'])
+    if st.button(f"🚀 TRADE GHE - {sig} - {INSTRUMENT}", type="primary"):
         if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
         else:
-            # Live LTP gheun trade
             live_ltp = smart.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
-            sym,tok,atm=get_atm_option(smart, ai['final'], live_ltp)
+            sym,tok,atm=get_atm_option(smart, sig, live_ltp)
             if tok:
                 opt_ltp=smart.ltpData(cfg["opt_exchange"], sym, tok)['data']['ltp']
                 st.info(f"Option: {sym} | ATM {atm} | Premium ₹{opt_ltp} | Qty {QTY}")
-                if not LIVE_MODE: st.warning(f"PAPER ORDER: {ai['final']} {sym} @ ₹{opt_ltp}")
+                if not LIVE_MODE: st.warning(f"PAPER ORDER: {sig} {sym} @ ₹{opt_ltp}")
                 else:
                     oid=smart.placeOrder({"variety":"NORMAL","tradingsymbol":sym,"symboltoken":tok,"transactiontype":"BUY","exchange":cfg["opt_exchange"],"ordertype":"MARKET","producttype":"INTRADAY","duration":"DAY","price":"0","squareoff":str(int(TARGET_POINTS*100)),"stoploss":str(int(SL_POINTS*100)),"quantity":str(QTY)})
                     st.success(f"✅ LIVE ORDER GELI! {oid}"); st.session_state['trades']+=1
             else: st.error("Option sapadla nahi")
 else:
-    st.info("WAIT aahe - Trade button nahi")
+    st.info("WAIT aahe - AI la clear signal nahi")
+    if st.button("⬆️ BUY CALL", use_container_width=True): st.session_state['manual_signal']="BUY"
+    if st.button("⬇️ BUY PUT", use_container_width=True): st.session_state['manual_signal']="SELL"
 
 if st.button("📊 Live Positions Bagha"):
     pos=smart.position()
     if pos['data']: st.dataframe(pd.DataFrame(pos['data']))
     else: st.write("Kutlihi Position nahi")
-
-if st.button("🔄 Purna Study Aatach Parat Kar (30 sec chi vaat nako)"):
-    st.session_state['last_study'] = 0
-    st.rerun()
+if st.button("🔄 Study Aatach Parat Kar"):
+    st.session_state['last_study']=0; st.rerun()
