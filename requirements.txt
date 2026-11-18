@@ -1,3 +1,6 @@
 streamlit
 pandas
 numpy
+pyotp
+SmartApi
+python-dotenv
