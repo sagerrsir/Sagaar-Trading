@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - TRADINGVIEW", layout="wide")
+st.set_page_config(page_title="SAGAR AI PRO - FIXED", layout="wide")
 st.title("🤖 SAGAR AI PRO - TRADINGVIEW CHART")
 
 INSTRUMENT = st.selectbox("Instrument:", ["NIFTY", "CRUDEOIL MINI", "GOLD MINI"])
@@ -20,6 +20,16 @@ CONFIG = {
     "GOLD MINI": {"exchange": "MCX", "strike_step": 100, "qty": 1, "opt_exchange": "MCX", "prefix": "GOLDM", "news_q": "Gold price today"},
 }
 cfg = CONFIG[INSTRUMENT]
+
+# --- FIX 1: Instrument badalla ki juna data delete kar ---
+if 'last_instrument' not in st.session_state:
+    st.session_state['last_instrument'] = INSTRUMENT
+if st.session_state['last_instrument'] != INSTRUMENT:
+    st.session_state['last_instrument'] = INSTRUMENT
+    st.session_state['cached_ai'] = None
+    st.session_state['last_study'] = 0
+    st.session_state['price_history'] = []
+    st.rerun()
 
 st.sidebar.header("⚠️ RISK CONTROL")
 LIVE_MODE = st.sidebar.toggle("🔴 LIVE TRADING ON", value=False)
@@ -31,7 +41,7 @@ if 'trades' not in st.session_state: st.session_state['trades'] = 0
 if 'killed' not in st.session_state: st.session_state['killed'] = False
 if 'cached_ai' not in st.session_state: st.session_state['cached_ai'] = None
 if 'last_study' not in st.session_state: st.session_state['last_study'] = 0
-if 'live_hist' not in st.session_state: st.session_state['live_hist'] = []
+if 'price_history' not in st.session_state: st.session_state['price_history'] = []
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
@@ -83,9 +93,14 @@ def news_sentiment(news_list):
     return s
 
 def do_full_study(smart, token):
-    to_date = datetime.now(); from_date = to_date - timedelta(days=3)
+    to_date = datetime.now(); from_date = to_date - timedelta(days=5)
     hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
+    # --- FIX 2: Data khali asel tar error nako ---
+    if not hist or 'data' not in hist or not hist['data']:
+        return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
+    if len(df) < 30:
+        return None
     df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
     df['ema21']=df['close'].ewm(span=21, adjust=False).mean()
@@ -112,39 +127,17 @@ def do_full_study(smart, token):
     if score>=70: final="BUY"
     elif score<=30: final="SELL"
     else: final="WAIT"
-    return {"score":score,"final":final,"reasons":reasons,"news":news,"n_score":n_score,"df":df,"last":last,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max()}
+    return {"score":score,"final":final,"reasons":reasons,"news":news,"n_score":n_score,"df":df,"last":last,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max(),"instrument":INSTRUMENT}
 
-def make_tradingview_chart(df, live_price=None):
-    # TradingView sarkha - Kala background, Lal/Hirvya Candles
+def make_tradingview_chart(df):
     fig = go.Figure()
-    # Candles
-    fig.add_trace(go.Candlestick(
-        x=df['datetime'], open=df['open'], high=df['high'], low=df['low'], close=df['close'],
-        increasing_line_color='#26A69A', increasing_fillcolor='#26A69A',
-        decreasing_line_color='#EF5350', decreasing_fillcolor='#EF5350',
-        name='Candles'
-    ))
-    # EMA 9 - Pivla
+    fig.add_trace(go.Candlestick(x=df['datetime'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], increasing_line_color='#26A69A', increasing_fillcolor='#26A69A', decreasing_line_color='#EF5350', decreasing_fillcolor='#EF5350', name='Candles'))
     fig.add_trace(go.Scatter(x=df['datetime'], y=df['ema9'], line=dict(color='#FFD700', width=1.5), name='EMA 9'))
-    # EMA 21 - Nila
     fig.add_trace(go.Scatter(x=df['datetime'], y=df['ema21'], line=dict(color='#2962FF', width=1.5), name='EMA 21'))
-    # VWAP - Pandhra dotted
     fig.add_trace(go.Scatter(x=df['datetime'], y=df['vwap'], line=dict(color='white', width=1, dash='dot'), name='VWAP'))
-    # Volume - Khali
     colors = ['#26A69A' if c >= o else '#EF5350' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['datetime'], y=df['volume'], marker_color=colors, opacity=0.5, name='Volume', yaxis='y2'))
-    fig.update_layout(
-        template='plotly_dark',
-        paper_bgcolor='#131722', plot_bgcolor='#131722',
-        font=dict(color='white'),
-        xaxis=dict(gridcolor='#1E222D', rangeslider=dict(visible=False)),
-        yaxis=dict(gridcolor='#1E222D', side='right'),
-        yaxis2=dict(overlaying='y', side='left', showgrid=False, position=0),
-        height=500,
-        margin=dict(l=0, r=50, t=10, b=0),
-        legend=dict(orientation='h', y=1.02, x=0),
-        hovermode='x unified'
-    )
+    fig.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', font=dict(color='white'), xaxis=dict(gridcolor='#1E222D', rangeslider=dict(visible=False)), yaxis=dict(gridcolor='#1E222D', side='right'), yaxis2=dict(overlaying='y', side='left', showgrid=False), height=500, margin=dict(l=0, r=50, t=10, b=0), legend=dict(orientation='h', y=1.02, x=0), hovermode='x unified')
     return fig
 
 def get_atm_option(smart, signal, ltp):
@@ -174,15 +167,23 @@ if not smart:
     st.error("Login Fail"); st.stop()
 token, sym_name = get_underlying(smart)
 
-if time.time() - st.session_state['last_study'] > 30 or st.session_state['cached_ai'] is None:
-    try:
-        st.session_state['cached_ai'] = do_full_study(smart, token)
+# FIX 3: Cached data tya instrument cha aahe ka check kar
+need_study = (time.time() - st.session_state['last_study'] > 30) or (st.session_state['cached_ai'] is None) or (st.session_state['cached_ai'].get('instrument') != INSTRUMENT)
+if need_study:
+    result = do_full_study(smart, token)
+    if result is not None:
+        st.session_state['cached_ai'] = result
         st.session_state['last_study'] = time.time()
-    except Exception as e: st.warning(f"Study Error: {e}")
+    else:
+        st.warning("⚠️ Market Band aahe / Data yet nahi - 30 sec madhe parat try hoil. Ratri NIFTY band asto, Crude chalu asto.")
 
 ai = st.session_state['cached_ai']
+# Jar ai dusrya instrument cha asel tar dakhavu nako
+if ai and ai.get('instrument') != INSTRUMENT:
+    ai = None
+
 if ai:
-    st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🧠 AI 30 sec la update")
+    st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🧠 AI 30 sec la update | Instrument: {INSTRUMENT}")
     c1,c2,c3,c4 = st.columns(4)
     c1.metric("AI SCORE", f"{ai['score']}/100", ai['final'])
     c2.metric("RSI", f"{ai['last']['rsi']:.1f}")
@@ -198,29 +199,31 @@ if ai:
     with col2:
         st.write("**📰 NEWS:**")
         for n in ai['news']: st.write(f"- {n}")
+else:
+    st.info(f"📅 {now_ist.strftime('%d %b %Y')} | 🕒 {now_ist.strftime('%H:%M:%S')} | {INSTRUMENT} cha data yetoy...")
 
-# --- TRADINGVIEW CHART + 1 SEC LIVE - Fakt ha bhag halel ---
+# --- LIVE CHART ---
 @st.fragment(run_every=1)
 def live_chart_box():
     try:
         s = get_connection()
         ltp = s.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
-        # Live candle update - shevatchi candle live halav
         df = ai['df'].copy() if ai else pd.DataFrame()
         if not df.empty:
-            # Shevatchi candle cha close = live price
             df.loc[df.index[-1], 'close'] = ltp
             df.loc[df.index[-1], 'high'] = max(df.loc[df.index[-1], 'high'], ltp)
             df.loc[df.index[-1], 'low'] = min(df.loc[df.index[-1], 'low'], ltp)
         c1,c2 = st.columns([1,3])
         with c1:
             st.metric(f"{INSTRUMENT} LIVE ⚡", f"₹{ltp:.2f}")
-            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')} - Page refresh nahi")
+            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')}")
         with c2:
             st.write(f"**{INSTRUMENT} · {cfg['exchange']} · 15m**")
         if not df.empty:
-            fig = make_tradingview_chart(df.tail(60), ltp)
-            st.plotly_chart(fig, use_container_width=True, key=f"tv_{datetime.now().strftime('%H%M%S')}")
+            fig = make_tradingview_chart(df.tail(60))
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.write("Chart sathi data yetoy... Market band asel tar thamb")
     except Exception as e:
         st.write(f"Chart load hotoy... {e}")
 
@@ -228,52 +231,9 @@ st.divider()
 st.subheader(f"📈 {INSTRUMENT} - TRADINGVIEW CHART - 15m - LIVE 1 SEC")
 live_chart_box()
 
-# --- TRADE BUTTONS - Tuzya screenshot sarkhe ---
+# --- MARKET OFF + CROWD CHART ---
 st.divider()
-if ai and ai['final']!="WAIT":
-    col_buy, col_put = st.columns(2)
-    with col_buy:
-        if st.button("⬆️ BUY CALL", type="primary", use_container_width=True):
-            st.session_state['manual_signal'] = "BUY"
-    with col_put:
-        if st.button("⬇️ BUY PUT", type="primary", use_container_width=True):
-            st.session_state['manual_signal'] = "SELL"
-    sig = st.session_state.get('manual_signal', ai['final'])
-    if st.button(f"🚀 TRADE GHE - {sig} - {INSTRUMENT}", type="primary"):
-        if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
-        else:
-            live_ltp = smart.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
-            sym,tok,atm=get_atm_option(smart, sig, live_ltp)
-            if tok:
-                opt_ltp=smart.ltpData(cfg["opt_exchange"], sym, tok)['data']['ltp']
-                st.info(f"Option: {sym} | ATM {atm} | Premium ₹{opt_ltp} | Qty {QTY}")
-                if not LIVE_MODE: st.warning(f"PAPER ORDER: {sig} {sym} @ ₹{opt_ltp}")
-                else:
-                    oid=smart.placeOrder({"variety":"NORMAL","tradingsymbol":sym,"symboltoken":tok,"transactiontype":"BUY","exchange":cfg["opt_exchange"],"ordertype":"MARKET","producttype":"INTRADAY","duration":"DAY","price":"0","squareoff":str(int(TARGET_POINTS*100)),"stoploss":str(int(SL_POINTS*100)),"quantity":str(QTY)})
-                    st.success(f"✅ LIVE ORDER GELI! {oid}"); st.session_state['trades']+=1
-            else: st.error("Option sapadla nahi")
-else:
-    st.info("WAIT aahe - AI la clear signal nahi")
-    if st.button("⬆️ BUY CALL", use_container_width=True): st.session_state['manual_signal']="BUY"
-    if st.button("⬇️ BUY PUT", use_container_width=True): st.session_state['manual_signal']="SELL"
-
-if st.button("📊 Live Positions Bagha"):
-    pos=smart.position()
-    if pos['data']: st.dataframe(pd.DataFrame(pos['data']))
-    else: st.write("Kutlihi Position nahi")
-if st.button("🔄 Study Aatach Parat Kar"):
-    st.session_state['last_study']=0; st.rerun()
-# --- MARKET OFF + INTRADAY CROWD CHART ---
-import streamlit as st
-import plotly.graph_objects as go
-from datetime import datetime, timedelta, timezone
-
-st.divider()
-st.subheader("👥 INTRADAY CROWD + ⏰ MARKET OFF COUNTDOWN")
-
-now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
-
-# 1. MARKET OFF COUNTDOWN
+st.subheader("👥 INTRADAY CROWD + ⏰ MARKET OFF")
 if INSTRUMENT == "NIFTY":
     close_time = now_ist.replace(hour=15, minute=30, second=0)
     open_time = now_ist.replace(hour=9, minute=15, second=0)
@@ -282,80 +242,57 @@ else:
     close_time = now_ist.replace(hour=23, minute=30, second=0)
     open_time = now_ist.replace(hour=9, minute=0, second=0)
     market_name = "MCX"
-
 if now_ist < open_time:
     st.warning(f"🔴 {market_name} ajun ughadla nahi - Ughdel: {open_time.strftime('%I:%M %p')}")
-    progress = 0
-    remaining_str = f"Ughdayla {int((open_time - now_ist).total_seconds()/60)} min baki"
+    progress = 0; remaining_str = "Ughdayla vel aahe"
 elif now_ist > close_time:
     st.error(f"🔴 {market_name} BAND zala - Udhya {open_time.strftime('%I:%M %p')} la ughdel")
-    progress = 100
-    remaining_str = "Market Band - Udhya baghu"
+    progress = 100; remaining_str = "Market Band"
 else:
     total_min = (close_time - open_time).total_seconds()/60
     done_min = (now_ist - open_time).total_seconds()/60
     left_min = (close_time - now_ist).total_seconds()/60
     progress = int((done_min/total_min)*100)
     h = int(left_min//60); m = int(left_min%60)
-    remaining_str = f"Market Band hoyla: {h} taas {m} min baki"
+    remaining_str = f"Band hoyla: {h} taas {m} min baki"
     st.success(f"🟢 {market_name} CHALU AAHE | {remaining_str}")
-
 st.progress(progress/100)
 st.caption(f"Market Progress: {progress}% sampala | {remaining_str}")
+if ai:
+    last20 = ai['df'].tail(20).copy()
+    avg_vol = last20['volume'].mean(); curr_vol = last20['volume'].iloc[-1]
+    c1,c2,c3 = st.columns(3)
+    c1.metric("📊 Aatcha Volume", f"{int(curr_vol):,}", f"{((curr_vol-avg_vol)/avg_vol*100):.1f}% vs Avg")
+    c2.metric("👥 Andaz Traders", f"~{int(curr_vol/2):,}", "🔥 VADHATAY" if curr_vol>avg_vol else "📉 KAMI")
+    c3.metric("⏰ Market Off", remaining_str)
+    fig_c = go.Figure()
+    fig_c.add_trace(go.Bar(x=last20['datetime'], y=last20['volume'], marker_color=['#26A69A' if c>=o else '#EF5350' for c,o in zip(last20['close'], last20['open'])], name='Volume'))
+    fig_c.add_trace(go.Scatter(x=last20['datetime'], y=[avg_vol]*len(last20), line=dict(color='yellow', dash='dash'), name='Avg'))
+    fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='👥 CROWD - Bar unch = Lok jasta', height=280, margin=dict(l=0,r=10,t=40,b=0))
+    st.plotly_chart(fig_c, use_container_width=True)
 
-# 2. INTRADAY CROWD - Volume + OI varun
-# Angel kade OI milto - Option Chain madhun
-try:
-    # Option Chain / OI ghe
-    # NIFTY sathi NFO, MCX sathi MCX
-    oi_data = smart.getOptionChain(cfg["opt_exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token) if INSTRUMENT=="NIFTY" else None
-    # Jar OI milala nahi tar Volume varun andaz
-    df_crowd = ai['df'].copy() if ai else pd.DataFrame()
-    if not df_crowd.empty:
-        # Shevatchya 20 candles cha Volume
-        last20 = df_crowd.tail(20).copy()
-        # Crowd Estimate: Volume jasta = lok jasta
-        # 1 Lot = 1 jan pakadla (andaz)
-        avg_vol = last20['volume'].mean()
-        curr_vol = last20['volume'].iloc[-1]
-        crowd_trend = "🔥 VADHATAY" if curr_vol > avg_vol else "📉 KAMI HOTAY"
-        
-        c1,c2,c3 = st.columns(3)
-        c1.metric("📊 Aatcha Volume (15m)", f"{int(curr_vol):,}", f"{((curr_vol-avg_vol)/avg_vol*100):.1f}% vs Avg")
-        c2.metric("👥 Andaz Intraday Traders", f"~{int(curr_vol/2):,}", crowd_trend)
-        c3.metric("⏰ Market Off", remaining_str)
+# --- TRADE ---
+st.divider()
+if ai and ai['final']!="WAIT":
+    if st.button(f"🚀 TRADE GHE - {ai['final']} - {INSTRUMENT}", type="primary"):
+        if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
+        else:
+            live_ltp = smart.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
+            sym,tok,atm=get_atm_option(smart, ai['final'], live_ltp)
+            if tok:
+                opt_ltp=smart.ltpData(cfg["opt_exchange"], sym, tok)['data']['ltp']
+                st.info(f"Option: {sym} | ATM {atm} | Premium ₹{opt_ltp} | Qty {QTY}")
+                if not LIVE_MODE: st.warning(f"PAPER ORDER: {ai['final']} {sym} @ ₹{opt_ltp}")
+                else:
+                    oid=smart.placeOrder({"variety":"NORMAL","tradingsymbol":sym,"symboltoken":tok,"transactiontype":"BUY","exchange":cfg["opt_exchange"],"ordertype":"MARKET","producttype":"INTRADAY","duration":"DAY","price":"0","squareoff":str(int(TARGET_POINTS*100)),"stoploss":str(int(SL_POINTS*100)),"quantity":str(QTY)})
+                    st.success(f"✅ LIVE ORDER GELI! {oid}"); st.session_state['trades']+=1
+            else: st.error("Option sapadla nahi")
+else:
+    st.info("WAIT aahe - Aata trade nako. Ratri NIFTY band aahe mhanun WAIT aahe.")
 
-        # Volume Chart - Kiti lok aale, kiti gele
-        fig_crowd = go.Figure()
-        fig_crowd.add_trace(go.Bar(
-            x=last20['datetime'], y=last20['volume'],
-            marker_color=['#26A69A' if c>=o else '#EF5350' for c,o in zip(last20['close'], last20['open'])],
-            name='Volume = Lok'
-        ))
-        fig_crowd.add_trace(go.Scatter(
-            x=last20['datetime'], y=[avg_vol]*len(last20),
-            line=dict(color='yellow', dash='dash'), name='Avg Volume - Sarvasadharan Crowd'
-        ))
-        fig_crowd.update_layout(
-            template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722',
-            title='👥 INTRADAY CROWD CHART - Bar unch = Lok jasta aale, Bar lahan = Lok gele',
-            height=280, margin=dict(l=0,r=10,t=40,b=0),
-            xaxis=dict(gridcolor='#1E222D'), yaxis=dict(gridcolor='#1E222D')
-        )
-        st.plotly_chart(fig_crowd, use_container_width=True)
-        st.caption("Samaj: Hirva Bar unch = Buying sathi lok aale | Lal Bar unch = Selling sathi lok aale | Pivli line chya khali Bar = Lok kami zale, Market Off javal aala ki lok palatat")
-        
-        # 3. Market Off javal aalyavar kay hota te sang
-        if left_min < 60 if 'left_min' in locals() else False:
-            st.warning("⚠️ **Market Off la 1 taas baki - Intraday wale Square Off kartat!** Volume vadhil, pan trend ulta hou shakto. Navin entry nako!")
-        elif left_min < 180 if 'left_min' in locals() else False:
-            st.info("ℹ️ **Market Off la 3 taas baki - Halu halu lok baher padtil.**")
-except Exception as e:
-    st.write(f"Crowd Chart load hotoy... {e}")
-
-# 4. PCR - Lok Call ghetay ka Put ghetay?
-st.write("**📊 PCR - Lokancha Mood:**")
-st.write("- PCR > 1.0 = Lok PUT ghetay (Market padel vatay)")
-st.write("- PCR < 0.8 = Lok CALL ghetay (Market vadhil vatay)")
-st.write("- PCR 0.8 - 1.0 = Donhi bajula lok aahet, Neutral")
-
+if st.button("📊 Live Positions Bagha"):
+    pos=smart.position()
+    if pos['data']: st.dataframe(pd.DataFrame(pos['data']))
+    else: st.write("Kutlihi Position nahi")
+if st.button("🔄 Study Aatach Parat Kar"):
+    st.session_state['last_study']=0; st.rerun()
