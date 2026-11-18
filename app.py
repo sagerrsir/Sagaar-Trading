@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FIXED", layout="wide")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL", layout="wide")
 st.title("🤖 SAGAR AI PRO - TRADINGVIEW CHART")
 
 INSTRUMENT = st.selectbox("Instrument:", ["NIFTY", "CRUDEOIL MINI", "GOLD MINI"])
@@ -21,7 +21,7 @@ CONFIG = {
 }
 cfg = CONFIG[INSTRUMENT]
 
-# --- FIX 1: Instrument badalla ki juna data delete kar ---
+# --- Instrument badalla ki juna data delete ---
 if 'last_instrument' not in st.session_state:
     st.session_state['last_instrument'] = INSTRUMENT
 if st.session_state['last_instrument'] != INSTRUMENT:
@@ -42,6 +42,7 @@ if 'killed' not in st.session_state: st.session_state['killed'] = False
 if 'cached_ai' not in st.session_state: st.session_state['cached_ai'] = None
 if 'last_study' not in st.session_state: st.session_state['last_study'] = 0
 if 'price_history' not in st.session_state: st.session_state['price_history'] = []
+if 'manual_signal' not in st.session_state: st.session_state['manual_signal'] = None
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
@@ -95,7 +96,6 @@ def news_sentiment(news_list):
 def do_full_study(smart, token):
     to_date = datetime.now(); from_date = to_date - timedelta(days=5)
     hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
-    # --- FIX 2: Data khali asel tar error nako ---
     if not hist or 'data' not in hist or not hist['data']:
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
@@ -121,6 +121,7 @@ def do_full_study(smart, token):
     if 50<last['rsi']<70: score+=10; reasons.append(f"✅ RSI {last['rsi']:.1f} - Momentum UP")
     elif 30<last['rsi']<50: score-=10; reasons.append(f"❌ RSI {last['rsi']:.1f} - Momentum DOWN")
     else: reasons.append(f"⚠️ RSI {last['rsi']:.1f}")
+    if last['volume']>df['volume'].tail(20).mean(): score+=5; reasons.append("✅ Volume High - Confirm")
     if n_score>0: score+=10; reasons.append(f"✅ NEWS Bullish (+{n_score})")
     elif n_score<0: score-=10; reasons.append(f"❌ NEWS Bearish ({n_score})")
     else: reasons.append("➖ NEWS Neutral")
@@ -167,7 +168,6 @@ if not smart:
     st.error("Login Fail"); st.stop()
 token, sym_name = get_underlying(smart)
 
-# FIX 3: Cached data tya instrument cha aahe ka check kar
 need_study = (time.time() - st.session_state['last_study'] > 30) or (st.session_state['cached_ai'] is None) or (st.session_state['cached_ai'].get('instrument') != INSTRUMENT)
 if need_study:
     result = do_full_study(smart, token)
@@ -175,10 +175,9 @@ if need_study:
         st.session_state['cached_ai'] = result
         st.session_state['last_study'] = time.time()
     else:
-        st.warning("⚠️ Market Band aahe / Data yet nahi - 30 sec madhe parat try hoil. Ratri NIFTY band asto, Crude chalu asto.")
+        st.warning("⚠️ Market Band aahe / Data yet nahi - 30 sec madhe parat try hoil.")
 
 ai = st.session_state['cached_ai']
-# Jar ai dusrya instrument cha asel tar dakhavu nako
 if ai and ai.get('instrument') != INSTRUMENT:
     ai = None
 
@@ -202,7 +201,7 @@ if ai:
 else:
     st.info(f"📅 {now_ist.strftime('%d %b %Y')} | 🕒 {now_ist.strftime('%H:%M:%S')} | {INSTRUMENT} cha data yetoy...")
 
-# --- LIVE CHART ---
+# --- LIVE CHART 1 SEC - Fakt ha halel, purn page nahi ---
 @st.fragment(run_every=1)
 def live_chart_box():
     try:
@@ -213,10 +212,19 @@ def live_chart_box():
             df.loc[df.index[-1], 'close'] = ltp
             df.loc[df.index[-1], 'high'] = max(df.loc[df.index[-1], 'high'], ltp)
             df.loc[df.index[-1], 'low'] = min(df.loc[df.index[-1], 'low'], ltp)
+            live_sup = df['low'].tail(20).min()
+            live_res = df['high'].tail(20).max()
+            st.write(f"**LIVE Support: ₹{live_sup:.0f} | LIVE Resistance: ₹{live_res:.0f} | Price: ₹{ltp:.0f}**")
+            if ltp < live_sup:
+                st.error(f"⚠️ BREAKDOWN! Price Support chya khali - PUT kadhe laksh de, CALL gheu nako!")
+            elif ltp > live_res:
+                st.success(f"🚀 BREAKOUT! Price Resistance chya var - CALL kadhe laksh de!")
+            else:
+                st.info(f"➖ Price Support-Resist madhe aahe - WAIT kar")
         c1,c2 = st.columns([1,3])
         with c1:
             st.metric(f"{INSTRUMENT} LIVE ⚡", f"₹{ltp:.2f}")
-            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')}")
+            st.caption(f"Update: {datetime.now().strftime('%H:%M:%S')} - Page refresh nahi")
         with c2:
             st.write(f"**{INSTRUMENT} · {cfg['exchange']} · 15m**")
         if not df.empty:
@@ -244,10 +252,10 @@ else:
     market_name = "MCX"
 if now_ist < open_time:
     st.warning(f"🔴 {market_name} ajun ughadla nahi - Ughdel: {open_time.strftime('%I:%M %p')}")
-    progress = 0; remaining_str = "Ughdayla vel aahe"
+    progress = 0; remaining_str = "Ughdayla vel aahe"; left_min = 999
 elif now_ist > close_time:
     st.error(f"🔴 {market_name} BAND zala - Udhya {open_time.strftime('%I:%M %p')} la ughdel")
-    progress = 100; remaining_str = "Market Band"
+    progress = 100; remaining_str = "Market Band"; left_min = 0
 else:
     total_min = (close_time - open_time).total_seconds()/60
     done_min = (now_ist - open_time).total_seconds()/60
@@ -258,6 +266,8 @@ else:
     st.success(f"🟢 {market_name} CHALU AAHE | {remaining_str}")
 st.progress(progress/100)
 st.caption(f"Market Progress: {progress}% sampala | {remaining_str}")
+if left_min < 60 and left_min > 0:
+    st.warning("⚠️ Market Off la 1 taas baki - Intraday wale Square Off kartat! Navin entry nako!")
 if ai:
     last20 = ai['df'].tail(20).copy()
     avg_vol = last20['volume'].mean(); curr_vol = last20['volume'].iloc[-1]
@@ -270,25 +280,37 @@ if ai:
     fig_c.add_trace(go.Scatter(x=last20['datetime'], y=[avg_vol]*len(last20), line=dict(color='yellow', dash='dash'), name='Avg'))
     fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='👥 CROWD - Bar unch = Lok jasta', height=280, margin=dict(l=0,r=10,t=40,b=0))
     st.plotly_chart(fig_c, use_container_width=True)
+    st.caption("Hirva Bar unch = Buying la lok aale | Lal Bar unch = Selling la lok aale | Pivli line khali Bar = Lok gele")
 
 # --- TRADE ---
 st.divider()
-if ai and ai['final']!="WAIT":
-    if st.button(f"🚀 TRADE GHE - {ai['final']} - {INSTRUMENT}", type="primary"):
+st.subheader("🚀 TRADE")
+col_buy, col_put = st.columns(2)
+with col_buy:
+    if st.button("⬆️ BUY CALL", type="primary", use_container_width=True):
+        st.session_state['manual_signal'] = "BUY"
+with col_put:
+    if st.button("⬇️ BUY PUT", type="primary", use_container_width=True):
+        st.session_state['manual_signal'] = "SELL"
+
+sig = st.session_state.get('manual_signal') or (ai['final'] if ai else "WAIT")
+if sig != "WAIT":
+    st.info(f"Selected: {sig} - {INSTRUMENT}")
+    if st.button(f"🚀 TRADE GHE - {sig} - {INSTRUMENT}", type="primary"):
         if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
         else:
             live_ltp = smart.ltpData(cfg["exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token)['data']['ltp']
-            sym,tok,atm=get_atm_option(smart, ai['final'], live_ltp)
+            sym,tok,atm=get_atm_option(smart, sig, live_ltp)
             if tok:
                 opt_ltp=smart.ltpData(cfg["opt_exchange"], sym, tok)['data']['ltp']
                 st.info(f"Option: {sym} | ATM {atm} | Premium ₹{opt_ltp} | Qty {QTY}")
-                if not LIVE_MODE: st.warning(f"PAPER ORDER: {ai['final']} {sym} @ ₹{opt_ltp}")
+                if not LIVE_MODE: st.warning(f"PAPER ORDER: {sig} {sym} @ ₹{opt_ltp}")
                 else:
                     oid=smart.placeOrder({"variety":"NORMAL","tradingsymbol":sym,"symboltoken":tok,"transactiontype":"BUY","exchange":cfg["opt_exchange"],"ordertype":"MARKET","producttype":"INTRADAY","duration":"DAY","price":"0","squareoff":str(int(TARGET_POINTS*100)),"stoploss":str(int(SL_POINTS*100)),"quantity":str(QTY)})
                     st.success(f"✅ LIVE ORDER GELI! {oid}"); st.session_state['trades']+=1
             else: st.error("Option sapadla nahi")
 else:
-    st.info("WAIT aahe - Aata trade nako. Ratri NIFTY band aahe mhanun WAIT aahe.")
+    st.info("WAIT aahe - AI la clear signal nahi. Varche BUY CALL / BUY PUT dabun manual nivdu shaktos.")
 
 if st.button("📊 Live Positions Bagha"):
     pos=smart.position()
