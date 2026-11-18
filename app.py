@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import pyotp
+import re
 from datetime import datetime, timedelta
 from SmartApi import SmartConnect
 
@@ -47,24 +48,37 @@ def get_connection():
         st.error(f"Login Error: {e}")
         return None
 
-# --- NAVIN FIX: Token search karun ghe ---
+# --- FIXED: Javalchi Expiry ghe, 2027 chi nako ---
 def get_underlying_token(smart):
     if INSTRUMENT == "NIFTY":
         return "26000", "NIFTY"
-    # MCX sathi FUTCOM shodh
+    search_term = "CRUDEOIL" if "CRUDE" in INSTRUMENT else "GOLD"
     try:
-        res = smart.searchScrip(cfg["exchange"], cfg["search"])
-        # res['data'] madhe sagle contracts yetat, FUTCOM / FUTCOM wala ghe
+        res = smart.searchScrip(cfg["exchange"], search_term)
+        best_token = None
+        best_sym = None
+        best_days = 9999
+        today = datetime.now()
         for item in res['data']:
             sym = item.get('tradingsymbol','')
-            # CRUDEOILM + date sarkha - FUTURE, CE/PE naslela
-            if sym.startswith(cfg["search"]) and 'CE' not in sym and 'PE' not in sym:
-                # Expiry javalchi ghe - pahila milala to ghe
-                st.info(f"Underlying milala: {sym} Token: {item['symboltoken']}")
-                return item['symboltoken'], sym
-        # Jar varcha nahi milala tar pahila item ghe
-        if res['data']:
-            return res['data'][0]['symboltoken'], res['data'][0]['tradingsymbol']
+            if 'FUT' not in sym: continue
+            if 'MINI' in sym or sym.startswith("CRUDEOILM") or sym.startswith("GOLDM"): continue
+            try:
+                m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
+                if not m: continue
+                exp = datetime.strptime(m.group(1), "%d%b%y")
+                days = (exp - today).days
+                if 0 <= days < best_days and days < 60:
+                    best_days = days
+                    best_token = item['symboltoken']
+                    best_sym = sym
+            except: continue
+        if best_token:
+            st.info(f"Underlying milala: {best_sym} Token: {best_token} - {best_days} divsat expiry")
+            return best_token, best_sym
+        for item in res['data']:
+            if 'FUT' in item.get('tradingsymbol',''):
+                return item['symboltoken'], item['tradingsymbol']
     except Exception as e:
         st.error(f"Token search fail: {e}")
     return None, None
@@ -87,7 +101,6 @@ def get_atm_option(smart, signal, underlying_ltp):
         if res['data']:
             return symbol_try, res['data'][0]['symboltoken'], atm, ltp
     except: pass
-    # Fallback - javalchi expiry shodh
     try:
         res2 = smart.searchScrip(cfg["opt_exchange"], cfg['symbol_prefix'])
         for item in res2['data']:
@@ -103,7 +116,6 @@ def get_signal(smart):
     if not token:
         st.error("Underlying Token milala nahi!")
         return "WAIT", None, pd.DataFrame()
-
     to_date = datetime.now()
     from_date = to_date - timedelta(days=10)
     params = {
@@ -121,7 +133,6 @@ def get_signal(smart):
     if not hist or not hist.get('data') or len(hist['data']) == 0:
         st.error(f"Candle Data rikama! Token: {token} Symbol: {sym_name} Reply: {hist}")
         return "WAIT", None, pd.DataFrame()
-
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
