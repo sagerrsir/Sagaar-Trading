@@ -1,6 +1,1 @@
-streamlit
-smartapi-python
-logzero
-pandas
-requests
-websocket-client
+plotly
