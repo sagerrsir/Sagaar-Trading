@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import pyotp
 import re
+import time
 from datetime import datetime, timedelta
 from SmartApi import SmartConnect
 
@@ -48,12 +49,12 @@ def get_connection():
         st.error(f"Login Error: {e}")
         return None
 
-# --- FIXED: Javalchi Expiry ghe, 2027 chi nako ---
 def get_underlying_token(smart):
     if INSTRUMENT == "NIFTY":
         return "26000", "NIFTY"
     search_term = "CRUDEOIL" if "CRUDE" in INSTRUMENT else "GOLD"
     try:
+        time.sleep(0.5)
         res = smart.searchScrip(cfg["exchange"], search_term)
         best_token = None
         best_sym = None
@@ -76,46 +77,55 @@ def get_underlying_token(smart):
         if best_token:
             st.info(f"Underlying milala: {best_sym} Token: {best_token} - {best_days} divsat expiry")
             return best_token, best_sym
-        for item in res['data']:
-            if 'FUT' in item.get('tradingsymbol',''):
-                return item['symboltoken'], item['tradingsymbol']
     except Exception as e:
         st.error(f"Token search fail: {e}")
     return None, None
 
-def get_atm_option(smart, signal, underlying_ltp):
+# --- FIXED: Expiry aata Future madhun ghe ---
+def get_atm_option(smart, signal, underlying_ltp, underlying_sym):
     ltp = underlying_ltp
     atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
-    today = datetime.now()
+    opt_type = "CE" if signal == "BUY" else "PE"
+    
+    # Expiry: NIFTY = Thursday, MCX = Future chi expiry
     if INSTRUMENT == "NIFTY":
+        today = datetime.now()
         days_ahead = (3 - today.weekday()) % 7
         if days_ahead == 0 and today.hour >= 15: days_ahead = 7
         expiry = today + timedelta(days=days_ahead)
+        expiry_str = expiry.strftime("%d%b%y").upper()
     else:
-        expiry = today + timedelta(days=20)
-    expiry_str = expiry.strftime("%d%b%y").upper()
-    opt_type = "CE" if signal == "BUY" else "PE"
+        m = re.search(r'(\d{2}[A-Z]{3}\d{2})', underlying_sym)
+        if m:
+            expiry_str = m.group(1)  # 19NOV26 - Future chi expiry
+        else:
+            expiry_str = (datetime.now() + timedelta(days=20)).strftime("%d%b%y").upper()
+
     symbol_try = f"{cfg['symbol_prefix']}{expiry_str}{atm}{opt_type}"
+    st.info(f"Shodhtoy Option: {symbol_try}")
+    time.sleep(0.5)
     try:
         res = smart.searchScrip(cfg["opt_exchange"], symbol_try)
-        if res['data']:
+        if res and res.get('data'):
             return symbol_try, res['data'][0]['symboltoken'], atm, ltp
-    except: pass
-    try:
-        res2 = smart.searchScrip(cfg["opt_exchange"], cfg['symbol_prefix'])
-        for item in res2['data']:
-            if str(atm) in item['tradingsymbol'] and opt_type in item['tradingsymbol']:
-                return item['tradingsymbol'], item['symboltoken'], atm, ltp
     except Exception as e:
-        st.error(f"Symbol shodh fail: {e}")
-    st.error(f"Symbol sapadla nahi: {symbol_try}")
+        st.warning(f"1st try fail (Rate limit asel): {e} - 2 sec thambtoy...")
+        time.sleep(2)
+        try:
+            res = smart.searchScrip(cfg["opt_exchange"], symbol_try)
+            if res and res.get('data'):
+                return symbol_try, res['data'][0]['symboltoken'], atm, ltp
+        except Exception as e2:
+            st.error(f"Symbol shodh fail: {e2}")
+    
+    st.error(f"Symbol sapadla nahi: {symbol_try} - Ha Option kadachit list madhe nahi. Strike {atm} chukla asel.")
     return None, None, atm, ltp
 
 def get_signal(smart):
     token, sym_name = get_underlying_token(smart)
     if not token:
         st.error("Underlying Token milala nahi!")
-        return "WAIT", None, pd.DataFrame()
+        return "WAIT", None, pd.DataFrame(), sym_name
     to_date = datetime.now()
     from_date = to_date - timedelta(days=10)
     params = {
@@ -129,10 +139,10 @@ def get_signal(smart):
         hist = smart.getCandleData(params)
     except Exception as e:
         st.error(f"Candle Error: {e}")
-        return "WAIT", None, pd.DataFrame()
+        return "WAIT", None, pd.DataFrame(), sym_name
     if not hist or not hist.get('data') or len(hist['data']) == 0:
         st.error(f"Candle Data rikama! Token: {token} Symbol: {sym_name} Reply: {hist}")
-        return "WAIT", None, pd.DataFrame()
+        return "WAIT", None, pd.DataFrame(), sym_name
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     df['ema9'] = df['close'].ewm(span=9, adjust=False).mean()
     df['ema21'] = df['close'].ewm(span=21, adjust=False).mean()
@@ -143,18 +153,19 @@ def get_signal(smart):
     df['vwap'] = (df['close']*df['volume']).cumsum() / df['volume'].cumsum()
     last = df.iloc[-1]
     if last['ema9'] > last['ema21'] and last['close'] > last['vwap'] and 50 < last['rsi'] < 70:
-        return "BUY", last, df
+        return "BUY", last, df, sym_name
     elif last['ema9'] < last['ema21'] and last['close'] < last['vwap'] and 30 < last['rsi'] < 50:
-        return "SELL", last, df
+        return "SELL", last, df, sym_name
     else:
-        return "WAIT", last, df
+        return "WAIT", last, df, sym_name
 
-def place_order(smart, signal, underlying_ltp):
+def place_order(smart, signal, underlying_ltp, underlying_sym):
     if st.session_state['trades'] >= MAX_TRADES:
         st.warning("Max Trades zale!")
         return
-    symbol, token, atm, ltp = get_atm_option(smart, signal, underlying_ltp)
+    symbol, token, atm, ltp = get_atm_option(smart, signal, underlying_ltp, underlying_sym)
     if not token: return
+    time.sleep(0.5)
     opt_ltp = smart.ltpData(cfg["opt_exchange"], symbol, token)['data']['ltp']
     st.info(f"{INSTRUMENT} LTP: {ltp} | ATM: {atm} | Symbol: {symbol} | Premium: ₹{opt_ltp} | Qty: {QTY}")
     if not LIVE_MODE:
@@ -180,7 +191,7 @@ if st.button("🚀 Connect + Signal Check + Trade", type="primary"):
     smart = get_connection()
     if smart:
         st.success("Angel Connected!")
-        signal, last, df = get_signal(smart)
+        signal, last, df, underlying_sym = get_signal(smart)
         if last is None or df.empty:
             st.stop()
         c1, c2, c3, c4 = st.columns(4)
@@ -190,10 +201,10 @@ if st.button("🚀 Connect + Signal Check + Trade", type="primary"):
         c4.metric("VWAP", f"{last['vwap']:.1f}")
         if signal == "BUY":
             st.success(f"### SIGNAL: BUY - CALL (CE) - {INSTRUMENT}")
-            place_order(smart, "BUY", last['close'])
+            place_order(smart, "BUY", last['close'], underlying_sym)
         elif signal == "SELL":
             st.error(f"### SIGNAL: SELL - PUT (PE) - {INSTRUMENT}")
-            place_order(smart, "SELL", last['close'])
+            place_order(smart, "SELL", last['close'], underlying_sym)
         else:
             st.warning("### SIGNAL: WAIT")
         st.line_chart(df.set_index('datetime')[['close','ema9','ema21','vwap']].tail(50))
