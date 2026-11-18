@@ -81,45 +81,59 @@ def get_underlying_token(smart):
         st.error(f"Token search fail: {e}")
     return None, None
 
-# --- FIXED: Expiry aata Future madhun ghe ---
+# --- FINAL FIX: Expiry guess nahi, direct list madhun shodh ---
 def get_atm_option(smart, signal, underlying_ltp, underlying_sym):
     ltp = underlying_ltp
     atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
     opt_type = "CE" if signal == "BUY" else "PE"
-    
-    # Expiry: NIFTY = Thursday, MCX = Future chi expiry
-    if INSTRUMENT == "NIFTY":
-        today = datetime.now()
-        days_ahead = (3 - today.weekday()) % 7
-        if days_ahead == 0 and today.hour >= 15: days_ahead = 7
-        expiry = today + timedelta(days=days_ahead)
-        expiry_str = expiry.strftime("%d%b%y").upper()
-    else:
-        m = re.search(r'(\d{2}[A-Z]{3}\d{2})', underlying_sym)
-        if m:
-            expiry_str = m.group(1)  # 19NOV26 - Future chi expiry
-        else:
-            expiry_str = (datetime.now() + timedelta(days=20)).strftime("%d%b%y").upper()
+    st.info(f"Shodhtoy: {cfg['symbol_prefix']} Strike {atm} {opt_type} - Expiry kahihi aso")
 
-    symbol_try = f"{cfg['symbol_prefix']}{expiry_str}{atm}{opt_type}"
-    st.info(f"Shodhtoy Option: {symbol_try}")
     time.sleep(0.5)
     try:
-        res = smart.searchScrip(cfg["opt_exchange"], symbol_try)
-        if res and res.get('data'):
-            return symbol_try, res['data'][0]['symboltoken'], atm, ltp
+        # Broad search - sagle CRUDEOILM options yetil
+        res = smart.searchScrip(cfg["opt_exchange"], cfg["symbol_prefix"])
+        if not res or not res.get('data'):
+            st.error(f"Search rikama aala: {res}")
+            return None, None, atm, ltp
+        
+        candidates = []
+        for item in res['data']:
+            sym = item.get('tradingsymbol','')
+            # Fakt Option pahije, FUT nako. Strike + CE/PE pahije
+            if 'FUT' in sym: continue
+            if opt_type not in sym: continue
+            if str(atm) not in sym: continue
+            # CRUDEOILM...7900PE sarkha pahije
+            candidates.append(item)
+        
+        if candidates:
+            # Pahila milala to ghe - toch javalchi expiry asnar
+            # Date ne sort karuya - saglyat javalchi expiry pahili
+            def get_exp(s):
+                m = re.search(r'(\d{2}[A-Z]{3}\d{2})', s.get('tradingsymbol',''))
+                if m:
+                    try: return datetime.strptime(m.group(1), "%d%b%y")
+                    except: return datetime(2030,1,1)
+                return datetime(2030,1,1)
+            candidates.sort(key=get_exp)
+            best = candidates[0]
+            st.success(f"Option milala: {best['tradingsymbol']}")
+            return best['tradingsymbol'], best['symboltoken'], atm, ltp
+        else:
+            st.error(f"Strike {atm} {opt_type} cha option list madhech nahi. Javalche strikes: ")
+            # Kay strikes aahet te dakhvu - debug sathi
+            seen = set()
+            for item in res['data'][:50]:
+                sym = item.get('tradingsymbol','')
+                if opt_type in sym and 'FUT' not in sym:
+                    m = re.search(r'(\d{4,5})(CE|PE)', sym)
+                    if m and m.group(1) not in seen:
+                        seen.add(m.group(1))
+            st.write(f"Available Strikes (pahile 10): {sorted(list(seen))[:10]}")
+            return None, None, atm, ltp
     except Exception as e:
-        st.warning(f"1st try fail (Rate limit asel): {e} - 2 sec thambtoy...")
-        time.sleep(2)
-        try:
-            res = smart.searchScrip(cfg["opt_exchange"], symbol_try)
-            if res and res.get('data'):
-                return symbol_try, res['data'][0]['symboltoken'], atm, ltp
-        except Exception as e2:
-            st.error(f"Symbol shodh fail: {e2}")
-    
-    st.error(f"Symbol sapadla nahi: {symbol_try} - Ha Option kadachit list madhe nahi. Strike {atm} chukla asel.")
-    return None, None, atm, ltp
+        st.error(f"Symbol shodh fail: {e}")
+        return None, None, atm, ltp
 
 def get_signal(smart):
     token, sym_name = get_underlying_token(smart)
