@@ -263,3 +263,99 @@ if st.button("📊 Live Positions Bagha"):
     else: st.write("Kutlihi Position nahi")
 if st.button("🔄 Study Aatach Parat Kar"):
     st.session_state['last_study']=0; st.rerun()
+# --- MARKET OFF + INTRADAY CROWD CHART ---
+import streamlit as st
+import plotly.graph_objects as go
+from datetime import datetime, timedelta, timezone
+
+st.divider()
+st.subheader("👥 INTRADAY CROWD + ⏰ MARKET OFF COUNTDOWN")
+
+now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+
+# 1. MARKET OFF COUNTDOWN
+if INSTRUMENT == "NIFTY":
+    close_time = now_ist.replace(hour=15, minute=30, second=0)
+    open_time = now_ist.replace(hour=9, minute=15, second=0)
+    market_name = "NIFTY"
+else:
+    close_time = now_ist.replace(hour=23, minute=30, second=0)
+    open_time = now_ist.replace(hour=9, minute=0, second=0)
+    market_name = "MCX"
+
+if now_ist < open_time:
+    st.warning(f"🔴 {market_name} ajun ughadla nahi - Ughdel: {open_time.strftime('%I:%M %p')}")
+    progress = 0
+    remaining_str = f"Ughdayla {int((open_time - now_ist).total_seconds()/60)} min baki"
+elif now_ist > close_time:
+    st.error(f"🔴 {market_name} BAND zala - Udhya {open_time.strftime('%I:%M %p')} la ughdel")
+    progress = 100
+    remaining_str = "Market Band - Udhya baghu"
+else:
+    total_min = (close_time - open_time).total_seconds()/60
+    done_min = (now_ist - open_time).total_seconds()/60
+    left_min = (close_time - now_ist).total_seconds()/60
+    progress = int((done_min/total_min)*100)
+    h = int(left_min//60); m = int(left_min%60)
+    remaining_str = f"Market Band hoyla: {h} taas {m} min baki"
+    st.success(f"🟢 {market_name} CHALU AAHE | {remaining_str}")
+
+st.progress(progress/100)
+st.caption(f"Market Progress: {progress}% sampala | {remaining_str}")
+
+# 2. INTRADAY CROWD - Volume + OI varun
+# Angel kade OI milto - Option Chain madhun
+try:
+    # Option Chain / OI ghe
+    # NIFTY sathi NFO, MCX sathi MCX
+    oi_data = smart.getOptionChain(cfg["opt_exchange"], sym_name if INSTRUMENT!="NIFTY" else "NIFTY", token) if INSTRUMENT=="NIFTY" else None
+    # Jar OI milala nahi tar Volume varun andaz
+    df_crowd = ai['df'].copy() if ai else pd.DataFrame()
+    if not df_crowd.empty:
+        # Shevatchya 20 candles cha Volume
+        last20 = df_crowd.tail(20).copy()
+        # Crowd Estimate: Volume jasta = lok jasta
+        # 1 Lot = 1 jan pakadla (andaz)
+        avg_vol = last20['volume'].mean()
+        curr_vol = last20['volume'].iloc[-1]
+        crowd_trend = "🔥 VADHATAY" if curr_vol > avg_vol else "📉 KAMI HOTAY"
+        
+        c1,c2,c3 = st.columns(3)
+        c1.metric("📊 Aatcha Volume (15m)", f"{int(curr_vol):,}", f"{((curr_vol-avg_vol)/avg_vol*100):.1f}% vs Avg")
+        c2.metric("👥 Andaz Intraday Traders", f"~{int(curr_vol/2):,}", crowd_trend)
+        c3.metric("⏰ Market Off", remaining_str)
+
+        # Volume Chart - Kiti lok aale, kiti gele
+        fig_crowd = go.Figure()
+        fig_crowd.add_trace(go.Bar(
+            x=last20['datetime'], y=last20['volume'],
+            marker_color=['#26A69A' if c>=o else '#EF5350' for c,o in zip(last20['close'], last20['open'])],
+            name='Volume = Lok'
+        ))
+        fig_crowd.add_trace(go.Scatter(
+            x=last20['datetime'], y=[avg_vol]*len(last20),
+            line=dict(color='yellow', dash='dash'), name='Avg Volume - Sarvasadharan Crowd'
+        ))
+        fig_crowd.update_layout(
+            template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722',
+            title='👥 INTRADAY CROWD CHART - Bar unch = Lok jasta aale, Bar lahan = Lok gele',
+            height=280, margin=dict(l=0,r=10,t=40,b=0),
+            xaxis=dict(gridcolor='#1E222D'), yaxis=dict(gridcolor='#1E222D')
+        )
+        st.plotly_chart(fig_crowd, use_container_width=True)
+        st.caption("Samaj: Hirva Bar unch = Buying sathi lok aale | Lal Bar unch = Selling sathi lok aale | Pivli line chya khali Bar = Lok kami zale, Market Off javal aala ki lok palatat")
+        
+        # 3. Market Off javal aalyavar kay hota te sang
+        if left_min < 60 if 'left_min' in locals() else False:
+            st.warning("⚠️ **Market Off la 1 taas baki - Intraday wale Square Off kartat!** Volume vadhil, pan trend ulta hou shakto. Navin entry nako!")
+        elif left_min < 180 if 'left_min' in locals() else False:
+            st.info("ℹ️ **Market Off la 3 taas baki - Halu halu lok baher padtil.**")
+except Exception as e:
+    st.write(f"Crowd Chart load hotoy... {e}")
+
+# 4. PCR - Lok Call ghetay ka Put ghetay?
+st.write("**📊 PCR - Lokancha Mood:**")
+st.write("- PCR > 1.0 = Lok PUT ghetay (Market padel vatay)")
+st.write("- PCR < 0.8 = Lok CALL ghetay (Market vadhil vatay)")
+st.write("- PCR 0.8 - 1.0 = Donhi bajula lok aahet, Neutral")
+
