@@ -14,9 +14,9 @@ st.set_page_config(page_title="SAGAR AI PRO - ALL IN ONE", layout="wide")
 st.title("🎯 SAGAR AI PRO - NIFTY | BANKNIFTY | CRUDE | EQUITY - EKA PAGE VAR")
 
 CONFIG = {
-    "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY"},
-    "BANKNIFTY": {"exchange": "NSE", "strike_step": 100, "qty": 15, "opt_exchange": "NFO", "prefix": "BANKNIFTY", "news_q": "Bank Nifty today HDFC ICICI", "token": "26009", "sym": "BANKNIFTY"},
-    "CRUDEOIL MINI": {"exchange": "MCX", "strike_step": 50, "qty": 10, "opt_exchange": "MCX", "prefix": "CRUDEOILM", "news_q": "Crude Oil price OPEC", "token": None, "sym": None},
+    "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
+    "BANKNIFTY": {"exchange": "NSE", "strike_step": 100, "qty": 15, "opt_exchange": "NFO", "prefix": "BANKNIFTY", "news_q": "Bank Nifty today HDFC ICICI", "token": "26009", "sym": "BANKNIFTY", "fut_exchange": "NFO", "fut_search": "BANKNIFTY"},
+    "CRUDEOIL MINI": {"exchange": "MCX", "strike_step": 50, "qty": 10, "opt_exchange": "MCX", "prefix": "CRUDEOILM", "news_q": "Crude Oil price OPEC", "token": None, "sym": None, "fut_exchange": "MCX", "fut_search": "CRUDEOIL"},
 }
 INSTRUMENTS = ["NIFTY", "BANKNIFTY", "CRUDEOIL MINI"]
 
@@ -34,7 +34,7 @@ if 'selected_trade' not in st.session_state: st.session_state['selected_trade'] 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = []
 if 'smart_obj' not in st.session_state: st.session_state['smart_obj'] = None
 if 'login_time' not in st.session_state: st.session_state['login_time'] = 0
-if 'crude_cache' not in st.session_state: st.session_state['crude_cache'] = (None, None)
+if 'fut_cache' not in st.session_state: st.session_state['fut_cache'] = {}
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
@@ -43,9 +43,9 @@ if st.sidebar.button("🔄 Navin Login Kar"):
     st.session_state['login_time'] = 0
     st.session_state['cached_all'] = {}
     st.session_state['last_study'] = 0
+    st.session_state['fut_cache'] = {}
     st.rerun()
 
-# ===== FIX 1: IST VEL - SERVER US MADHE ASLA TARI IST GHYA =====
 now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
 now_ist_naive = now_ist.replace(tzinfo=None)
 
@@ -68,16 +68,14 @@ def get_connection():
         return None
 
 def safe_candle(smart, exchange, token):
-    # FIX 2: Rate Limit nako mhanun pratyek call aadhi 0.4 sec thamb + Retry
     to_date = now_ist_naive
     from_date = to_date - timedelta(days=3)
     for attempt in range(2):
         try:
-            time.sleep(0.4)  # Angel 1 sec la 3 call deto, mhanun thamb
+            time.sleep(0.4)
             hist = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
             if hist and hist.get('data'):
                 return hist
-            # Data khali asel tar ekda ONE_HOUR ne try kar
             if attempt == 0:
                 time.sleep(0.5)
                 hist2 = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "ONE_HOUR", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
@@ -86,31 +84,36 @@ def safe_candle(smart, exchange, token):
             return hist
         except Exception as e:
             if "exceeding" in str(e) or "Access denied" in str(e):
-                time.sleep(1.5)  # Rate limit aala tar 1.5 sec thambun parat
+                time.sleep(1.5)
                 continue
             return None
     return None
 
+# ===== FIX: NIFTY/BANKNIFTY/CRUDE - SAGLE FUTURE VARUN GHYA, INDEX TOKEN NAKO =====
 def get_underlying(smart, inst):
+    # Cache madhe asel tar parat search nako
+    if inst in st.session_state['fut_cache']:
+        return st.session_state['fut_cache'][inst]
     cfg = CONFIG[inst]
-    if cfg["token"]:
-        return cfg["token"], cfg["sym"]
-    # CRUDE ekdach shodh, parat parat nako - Rate Limit vachav
-    if st.session_state['crude_cache'][0]:
-        return st.session_state['crude_cache']
     try:
         time.sleep(0.4)
-        res = smart.searchScrip(cfg["exchange"], "CRUDEOIL")
+        res = smart.searchScrip(cfg["fut_exchange"], cfg["fut_search"])
         if not res or not isinstance(res, dict):
             return None, None
         data_list = res.get('data') or []
         if not data_list:
             return None, None
         best, best_days, best_sym = None, 9999, ""
+        best_exch = cfg["fut_exchange"]
         for item in data_list:
             sym = item.get('tradingsymbol','')
+            # NIFTY sathi: NIFTY...FUT pahije, NIFTY...CE/PE nako, BANKNIFTY sarkhe dusre nako
             if 'FUT' not in sym: continue
-            if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
+            if inst == "NIFTY" and not sym.startswith("NIFTY"): continue
+            if inst == "BANKNIFTY" and not sym.startswith("BANKNIFTY"): continue
+            if inst == "CRUDEOIL MINI":
+                if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
+                if not sym.startswith("CRUDEOIL"): continue
             m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
             if not m: continue
             try: exp = datetime.strptime(m.group(1), "%d%b%y")
@@ -118,10 +121,17 @@ def get_underlying(smart, inst):
             days = (exp - now_ist_naive).days
             if 0 <= days < best_days and days < 60:
                 best_days, best, best_sym = days, item.get('symboltoken'), sym
-        st.session_state['crude_cache'] = (best, best_sym)
-        return best, best_sym
+                best_exch = item.get('exchange', cfg["fut_exchange"])
+        if best:
+            # FUT cha exchange + token + sym save kar
+            # do_study la FUT exchange pahije, mhanun tuple madhe exchange pan thevtoy
+            # Format: (token, sym, exchange)
+            result = (best, best_sym, best_exch)
+            st.session_state['fut_cache'][inst] = result
+            return result
+        return None, None, None
     except:
-        return None, None
+        return None, None, None
 
 def get_news(query):
     try:
@@ -143,15 +153,13 @@ def news_sentiment(news_list):
             if w in tl: s-=1
     return s
 
-def do_study(smart, inst, token):
+def do_study(smart, inst, fut_info):
     cfg = CONFIG[inst]
-    hist = safe_candle(smart, cfg["exchange"], token)
+    token, fut_sym, fut_exch = fut_info
+    # Candle FUT varun, LTP Index varun
+    hist = safe_candle(smart, fut_exch, token)
     if not hist or 'data' not in hist or not hist['data']:
-        if hist and 'Invalid Token' in str(hist):
-            st.error(f"⚠️ {inst} - Token Expire zala! Sidebar madhe 'Navin Login Kar' dab.")
-            st.session_state['smart_obj'] = None
-        else:
-            st.warning(f"{inst} - Data milala nahi, parat try kartoy... {hist}")
+        st.warning(f"{inst} FUT - Data milala nahi: {fut_sym} - {hist}")
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     if len(df) < 20:
@@ -187,6 +195,7 @@ def do_study(smart, inst, token):
     if n_score>0: score+=5; reasons.append(f"✅ NEWS Bullish (+{n_score})")
     elif n_score<0: score-=5; reasons.append(f"❌ NEWS Bearish ({n_score})")
     else: reasons.append("➖ NEWS Neutral")
+    reasons.append(f"📊 Data: {fut_sym} FUT varun (Index la candle yet nahi mhanun)")
     blocked=""
     if inst in ["NIFTY","BANKNIFTY"] and now_ist.hour==9 and now_ist.minute<45: blocked="⏰ 9:45 aadhi NO TRADE"
     if inst=="CRUDEOIL MINI" and now_ist.hour==9 and now_ist.minute<30: blocked="⏰ 9:30 aadhi NO TRADE"
@@ -196,19 +205,15 @@ def do_study(smart, inst, token):
     elif score>=85 and confirm>=3: final="BUY"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA BUY")
     elif score<=15 and confirm>=3: final="SELL"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA SELL")
     else: final="WAIT"; reasons.append(f"⏳ Score {score} - 85 pahije - WAIT")
+    # LTP: NIFTY/BANKNIFTY sathi Index cha, CRUDE sathi FUT cha
     try:
         time.sleep(0.3)
-        if inst == "CRUDEOIL MINI":
-            _, sym_name = get_underlying(smart, inst)
-            ltp = smart.ltpData(cfg["exchange"], sym_name, token)['data']['ltp']
+        if inst in ["NIFTY","BANKNIFTY"]:
+            ltp = smart.ltpData(cfg["exchange"], cfg["sym"], cfg["token"])['data']['ltp']
         else:
-            ltp = smart.ltpData(cfg["exchange"], CONFIG[inst]["sym"], token)['data']['ltp']
+            ltp = smart.ltpData(fut_exch, fut_sym, token)['data']['ltp']
     except: ltp = float(last['close'])
-    try:
-        _, sym_name2 = get_underlying(smart, inst) if inst=="CRUDEOIL MINI" else (None, CONFIG[inst]["sym"])
-    except:
-        sym_name2 = CONFIG[inst]["sym"] if inst!="CRUDEOIL MINI" else ""
-    return {"score":score,"final":final,"reasons":reasons,"news":news,"df":df,"last":last,"ltp":ltp,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max(),"instrument":inst,"confirm":confirm,"token":token,"sym_name":sym_name2}
+    return {"score":score,"final":final,"reasons":reasons,"news":news,"df":df,"last":last,"ltp":ltp,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max(),"instrument":inst,"confirm":confirm,"token":token,"sym_name":fut_sym,"fut_sym":fut_sym}
 
 def make_chart(df):
     fig = go.Figure()
@@ -257,11 +262,11 @@ if time.time() - st.session_state['last_study'] > 60 or not st.session_state['ca
     new_cache = {}
     for inst in INSTRUMENTS:
         try:
-            tok, sym = get_underlying(smart, inst)
-            if not tok:
-                st.warning(f"{inst} - Token milala nahi")
+            fut_info = get_underlying(smart, inst)
+            if not fut_info or not fut_info[0]:
+                st.warning(f"{inst} - FUT Token milala nahi")
                 continue
-            res = do_study(smart, inst, tok)
+            res = do_study(smart, inst, fut_info)
             if res: new_cache[inst] = res
         except Exception as e:
             st.warning(f"{inst} skip: {e}")
@@ -281,6 +286,7 @@ for col, inst in zip([c1,c2,c3], INSTRUMENTS):
             st.markdown(f"### {emoji} {inst}")
             st.metric(f"{inst} LIVE", f"₹{d['ltp']:.2f}", f"Score {d['score']}/100 - {d['final']}")
             st.write(f"RSI {d['last']['rsi']:.1f} | Sup ₹{d['sup']:.0f} | Res ₹{d['resi']:.0f}")
+            st.write(f"FUT: {d.get('fut_sym','')}")
             st.progress(min(max(d['score'],0),100)/100)
             if d['final']=="BUY": st.success("🎯 PAKKA BUY")
             elif d['final']=="SELL": st.error("🎯 PAKKA SELL")
@@ -298,7 +304,7 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
         d = all_data.get(inst)
         if not d:
             st.warning(f"{inst} - Data yet nahi - 1 min thambun Refresh dab."); continue
-        st.subheader(f"{inst} - Score {d['score']} - {d['final']} - LIVE ₹{d['ltp']:.2f}")
+        st.subheader(f"{inst} - Score {d['score']} - {d['final']} - LIVE ₹{d['ltp']:.2f} - FUT {d.get('fut_sym','')}")
         col1, col2 = st.columns(2)
         with col1:
             st.write("**🧠 AI Reason:**")
@@ -326,10 +332,10 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
         fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='Crowd - Bar unch = Lok jasta', height=200, margin=dict(l=0,r=10,t=30,b=0))
         st.plotly_chart(fig_c, use_container_width=True, key=f"crowd_{inst}")
 
-# ===== EQUITY SCANNER - 10 STOCKS (Rate Limit vachav) =====
+# ===== EQUITY SCANNER =====
 st.divider()
 st.subheader("🏆 EQUITY SCANNER - PURN MARKET MADHUN KONTA VADHANAR?")
-st.caption("Top 10 mothe stocks scan kartoy - Rate Limit yeu naye mhanun 10 kele")
+st.caption("Top 10 mothe stocks scan kartoy")
 
 EQUITY_LIST = [
     ("RELIANCE", "2885"), ("HDFCBANK", "1330"), ("ICICIBANK", "3045"), ("INFY", "1802"),
@@ -373,7 +379,7 @@ def scan_equity():
         except: continue
     return pd.DataFrame(results)
 
-with st.spinner("Purn market scan kartoy... 10 stocks... thoda vel lagel (Rate Limit sathi thambtoy)..."):
+with st.spinner("Purn market scan kartoy... 10 stocks..."):
     eq_df = scan_equity()
 
 if not eq_df.empty:
