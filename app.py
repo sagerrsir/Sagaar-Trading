@@ -35,6 +35,8 @@ if 'watchlist' not in st.session_state: st.session_state['watchlist'] = []
 if 'smart_obj' not in st.session_state: st.session_state['smart_obj'] = None
 if 'login_time' not in st.session_state: st.session_state['login_time'] = 0
 if 'fut_cache' not in st.session_state: st.session_state['fut_cache'] = {}
+if 'eq_df' not in st.session_state: st.session_state['eq_df'] = None
+if 'news_cache' not in st.session_state: st.session_state['news_cache'] = {}
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
@@ -73,12 +75,12 @@ def safe_candle(smart, exchange, token):
     last_err = ""
     for attempt in range(2):
         try:
-            time.sleep(0.4)
+            time.sleep(0.2)  # FAST: 0.4 -> 0.2
             hist = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
             if hist and hist.get('data'):
                 return hist
             if attempt == 0:
-                time.sleep(0.5)
+                time.sleep(0.3)
                 hist2 = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "ONE_HOUR", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
                 if hist2 and hist2.get('data'):
                     return hist2
@@ -86,18 +88,17 @@ def safe_candle(smart, exchange, token):
         except Exception as e:
             last_err = str(e)
             if "exceeding" in str(e) or "Access denied" in str(e):
-                time.sleep(1.5)
+                time.sleep(1.0)
                 continue
             break
     return {"error": last_err}
 
-# ===== FIX: SPREAD NAKO - FAKT KHARA FUTURE =====
 def get_underlying(smart, inst):
     if inst in st.session_state['fut_cache']:
         return st.session_state['fut_cache'][inst]
     cfg = CONFIG[inst]
     try:
-        time.sleep(0.4)
+        time.sleep(0.2)
         res = smart.searchScrip(cfg["fut_exchange"], cfg["fut_search"])
         if not res or not isinstance(res, dict):
             return None, None, None
@@ -108,17 +109,12 @@ def get_underlying(smart, inst):
         best_exch = cfg["fut_exchange"]
         for item in data_list:
             sym = item.get('tradingsymbol','').strip()
-            # FIX: Fakt ha pattern chalt - NIFTY26NOV26FUT
-            # NIFTY23NOV2625JAN27FUT sarkha SPREAD nako - tyat 2 date astat
             if inst == "NIFTY":
-                if not re.match(r'^NIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym):
-                    continue
+                if not re.match(r'^NIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym): continue
             elif inst == "BANKNIFTY":
-                if not re.match(r'^BANKNIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym):
-                    continue
+                if not re.match(r'^BANKNIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym): continue
             elif inst == "CRUDEOIL MINI":
-                if not re.match(r'^CRUDEOIL\d{2}[A-Z]{3}\d{2}FUT$', sym):
-                    continue
+                if not re.match(r'^CRUDEOIL\d{2}[A-Z]{3}\d{2}FUT$', sym): continue
             m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
             if not m: continue
             try: exp = datetime.strptime(m.group(1), "%d%b%y")
@@ -136,12 +132,19 @@ def get_underlying(smart, inst):
         return None, None, None
 
 def get_news(query):
+    # FAST: News 5 min la ekdach - parat parat nako
+    if query in st.session_state['news_cache']:
+        t, val = st.session_state['news_cache'][query]
+        if time.time() - t < 300:
+            return val
     try:
         url = f"https://news.google.com/rss/search?q={query}&hl=en-IN&gl=IN&ceid=IN:en"
-        r = requests.get(url, timeout=3)
+        r = requests.get(url, timeout=2)
         root = ET.fromstring(r.content)
-        return [item.find("title").text for item in root.findall(".//item")[:3]]
-    except: return []
+        val = [item.find("title").text for item in root.findall(".//item")[:2]]
+    except: val = []
+    st.session_state['news_cache'][query] = (time.time(), val)
+    return val
 
 def news_sentiment(news_list):
     bull = ["rise","up","gain","surge","rally","high","bull","jump","positive","hike","strong","record"]
@@ -160,11 +163,9 @@ def do_study(smart, inst, fut_info):
     token, fut_sym, fut_exch = fut_info
     hist = safe_candle(smart, fut_exch, token)
     if not hist or 'data' not in hist or not hist['data']:
-        st.warning(f"{inst} FUT - Data milala nahi: {fut_sym} - Err: {hist.get('error','') if isinstance(hist, dict) else hist}")
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     if len(df) < 20:
-        st.warning(f"{inst} - Fakt {len(df)} candle aale")
         return None
     df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
@@ -207,7 +208,6 @@ def do_study(smart, inst, fut_info):
     elif score<=15 and confirm>=3: final="SELL"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA SELL")
     else: final="WAIT"; reasons.append(f"⏳ Score {score} - 85 pahije - WAIT")
     try:
-        time.sleep(0.3)
         if inst in ["NIFTY","BANKNIFTY"]:
             ltp = smart.ltpData(cfg["exchange"], cfg["sym"], cfg["token"])['data']['ltp']
         else:
@@ -224,7 +224,7 @@ def make_chart(df):
     fig.add_trace(go.Scatter(x=df['datetime'], y=df['vwap'], line=dict(color='white', width=1, dash='dot'), name='VWAP'))
     colors = ['#26A69A' if c >= o else '#EF5350' for c,o in zip(df['close'], df['open'])]
     fig.add_trace(go.Bar(x=df['datetime'], y=df['volume'], marker_color=colors, opacity=0.5, name='Volume', yaxis='y2'))
-    fig.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', font=dict(color='white'), xaxis=dict(gridcolor='#1E222D', rangeslider=dict(visible=False)), yaxis=dict(gridcolor='#1E222D', side='right'), yaxis2=dict(overlaying='y', side='left', showgrid=False), height=420, margin=dict(l=0, r=50, t=10, b=0), legend=dict(orientation='h', y=1.02, x=0), hovermode='x unified')
+    fig.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', font=dict(color='white'), xaxis=dict(gridcolor='#1E222D', rangeslider=dict(visible=False)), yaxis=dict(gridcolor='#1E222D', side='right'), yaxis2=dict(overlaying='y', side='left', showgrid=False), height=380, margin=dict(l=0, r=50, t=10, b=0), legend=dict(orientation='h', y=1.02, x=0), hovermode='x unified')
     return fig
 
 def get_atm_option(smart, inst, signal, ltp):
@@ -232,7 +232,7 @@ def get_atm_option(smart, inst, signal, ltp):
         cfg = CONFIG[inst]
         atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
         otype = "CE" if signal=="BUY" else "PE"
-        time.sleep(0.4)
+        time.sleep(0.2)
         res = smart.searchScrip(cfg["opt_exchange"], cfg["prefix"])
         data_list = res.get('data') or [] if isinstance(res, dict) else []
         cands=[]
@@ -258,23 +258,20 @@ def get_atm_option(smart, inst, signal, ltp):
 smart = get_connection()
 if not smart:
     st.error("Login Fail - API Key / TOTP / PIN check kar"); st.stop()
-if time.time() - st.session_state['last_study'] > 60 or not st.session_state['cached_all']:
+# FAST: 60 -> 120 sec cache - 2 min la ekdach Angel la call
+if time.time() - st.session_state['last_study'] > 120 or not st.session_state['cached_all']:
     new_cache = {}
     for inst in INSTRUMENTS:
         try:
             fut_info = get_underlying(smart, inst)
-            if not fut_info or not fut_info[0]:
-                st.warning(f"{inst} - FUT Token milala nahi")
-                continue
+            if not fut_info or not fut_info[0]: continue
             res = do_study(smart, inst, fut_info)
             if res: new_cache[inst] = res
-        except Exception as e:
-            st.warning(f"{inst} skip: {e}")
-            continue
+        except: continue
     st.session_state['cached_all'] = new_cache
     st.session_state['last_study'] = time.time()
 all_data = st.session_state['cached_all']
-st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🎯 ACCURACY MODE | 60 sec la update")
+st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | ⚡ FAST MODE | 2 min la update")
 
 # ===== TOP DASHBOARD =====
 c1,c2,c3 = st.columns(3)
@@ -294,7 +291,7 @@ for col, inst in zip([c1,c2,c3], INSTRUMENTS):
             if st.button(f"Trade Ghe - {inst}", key=f"btn_{inst}"):
                 st.session_state['selected_trade'] = inst
         else:
-            st.warning(f"{inst} - Data yetoy / Thodya velane yeil")
+            st.warning(f"{inst} - Data yetoy")
 st.divider()
 
 # ===== TABS =====
@@ -303,7 +300,7 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
     with tab:
         d = all_data.get(inst)
         if not d:
-            st.warning(f"{inst} - Data yet nahi - 1 min thambun Refresh dab."); continue
+            st.warning(f"{inst} - Data yet nahi - Refresh dab."); continue
         st.subheader(f"{inst} - Score {d['score']} - {d['final']} - LIVE ₹{d['ltp']:.2f} - FUT {d.get('fut_sym','')}")
         col1, col2 = st.columns(2)
         with col1:
@@ -312,41 +309,20 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
         with col2:
             st.write("**📰 NEWS:**")
             for n in d['news']: st.write(f"- {n}")
-            if inst in ["NIFTY","BANKNIFTY"]:
-                close_t = now_ist.replace(hour=15, minute=30, second=0); open_t = now_ist.replace(hour=9, minute=15, second=0)
-            else:
-                close_t = now_ist.replace(hour=23, minute=30, second=0); open_t = now_ist.replace(hour=9, minute=0, second=0)
-            if now_ist < open_t: st.warning(f"🔴 Ajun ughadla nahi - {open_t.strftime('%I:%M %p')} - Pan kalcha chart khali disel")
-            elif now_ist > close_t: st.error(f"🔴 BAND zala")
-            else:
-                left = (close_t - now_ist).total_seconds()/60
-                st.success(f"🟢 CHALU - Band hoyla {int(left//60)} taas {int(left%60)} min baki")
-                st.progress(int(((now_ist-open_t).total_seconds()/(close_t-open_t).total_seconds())*100)/100)
-        fig = make_chart(d['df'].tail(60))
+        fig = make_chart(d['df'].tail(50))
         st.plotly_chart(fig, use_container_width=True, key=f"chart_{inst}")
-        last20 = d['df'].tail(20)
-        avg_vol = last20['volume'].mean(); curr_vol = last20['volume'].iloc[-1]
-        st.write(f"**👥 Crowd:** Volume {int(curr_vol):,} | Avg {int(avg_vol):,} | {'🔥 Lok aale' if curr_vol>avg_vol else '📉 Lok kami'}")
-        fig_c = go.Figure()
-        fig_c.add_trace(go.Bar(x=last20['datetime'], y=last20['volume'], marker_color=['#26A69A' if c>=o else '#EF5350' for c,o in zip(last20['close'], last20['open'])]))
-        fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='Crowd - Bar unch = Lok jasta', height=200, margin=dict(l=0,r=10,t=30,b=0))
-        st.plotly_chart(fig_c, use_container_width=True, key=f"crowd_{inst}")
 
-# ===== EQUITY SCANNER =====
+# ===== EQUITY SCANNER - BUTTON VAR - MAIN PAGE FAST RAHIL =====
 st.divider()
-st.subheader("🏆 EQUITY SCANNER - PURN MARKET MADHUN KONTA VADHANAR?")
-st.caption("Top 10 mothe stocks scan kartoy")
-
-EQUITY_LIST = [
-    ("RELIANCE", "2885"), ("HDFCBANK", "1330"), ("ICICIBANK", "3045"), ("INFY", "1802"),
-    ("TCS", "3046"), ("SBIN", "3047"), ("LT", "3007"), ("ITC", "1660"),
-    ("AXISBANK", "5900"), ("BAJFINANCE", "317"),
-]
-
-def scan_equity():
+st.subheader("🏆 EQUITY SCANNER")
+st.caption("⚡ Main page fast rahave mhanun Equity aata button dabalyavarach scan hoil - Aadhi pratyek veli 10 stocks mule slow hot hota")
+if st.button("🔍 EQUITY SCAN KAR - TOP 10 STOCKS", type="primary"):
+    EQUITY_LIST = [("RELIANCE", "2885"), ("HDFCBANK", "1330"), ("ICICIBANK", "3045"), ("INFY", "1802"), ("TCS", "3046"), ("SBIN", "3047"), ("LT", "3007"), ("ITC", "1660"), ("AXISBANK", "5900"), ("BAJFINANCE", "317")]
     results = []
-    for name, tok in EQUITY_LIST:
+    prog = st.progress(0)
+    for i, (name, tok) in enumerate(EQUITY_LIST):
         try:
+            prog.progress((i+1)/len(EQUITY_LIST))
             hist = safe_candle(smart, "NSE", tok)
             if not hist or 'data' not in hist or not hist['data']: continue
             df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
@@ -366,25 +342,19 @@ def scan_equity():
             if 52<rsi.iloc[-1]<68: score+=10
             elif rsi.iloc[-1]>=70: score=50
             if last['volume']>avg_vol*1.3: score+=15
-            resi = df['high'].tail(20).max()
-            sup = df['low'].tail(20).min()
+            resi = df['high'].tail(20).max(); sup = df['low'].tail(20).min()
             breakout = "🚀 BREAKOUT" if last['close'] > resi*0.998 else "➖ Range madhe" if last['close']>sup else "⚠️ BREAKDOWN"
             if last['close'] > resi*0.998: score+=10
             profit_pct = ((resi - last['close'])/last['close']*100) if last['close']<resi else ((last['close']-sup)/last['close']*100)
-            try:
-                time.sleep(0.3)
-                ltp = smart.ltpData("NSE", name, tok)['data']['ltp']
+            try: ltp = smart.ltpData("NSE", name, tok)['data']['ltp']
             except: ltp = float(last['close'])
-            results.append({"Stock": name, "LTP": round(float(ltp),2), "Score": score, "RSI": round(float(rsi.iloc[-1]),1), "Signal": "🟢 BUY" if score>=75 else "🔴 SELL" if score<=25 else "🟡 WAIT", "Breakout": breakout, "Support": round(float(sup),2), "Resistance": round(float(resi),2), "Volume": f"{int(last['volume']):,}", "Profit Chance": f"{profit_pct:.2f}%"})
+            results.append({"Stock": name, "LTP": round(float(ltp),2), "Score": score, "RSI": round(float(rsi.iloc[-1]),1), "Signal": "🟢 BUY" if score>=75 else "🔴 SELL" if score<=25 else "🟡 WAIT", "Breakout": breakout, "Support": round(float(sup),2), "Resistance": round(float(resi),2), "Profit Chance": f"{profit_pct:.2f}%"})
         except: continue
-    return pd.DataFrame(results)
+    st.session_state['eq_df'] = pd.DataFrame(results) if results else None
 
-with st.spinner("Purn market scan kartoy... 10 stocks..."):
-    eq_df = scan_equity()
-
-if not eq_df.empty:
-    eq_df = eq_df.sort_values("Score", ascending=False)
-    st.success("🏆 **TOP 3 - AATA VADHANAR VATNARI STOCKS:**")
+if st.session_state['eq_df'] is not None and not st.session_state['eq_df'].empty:
+    eq_df = st.session_state['eq_df'].sort_values("Score", ascending=False)
+    st.success("🏆 **TOP 3:**")
     top3 = eq_df.head(3)
     tc1, tc2, tc3 = st.columns(3)
     for col, (_, row) in zip([tc1, tc2, tc3], top3.iterrows()):
@@ -392,25 +362,13 @@ if not eq_df.empty:
             st.markdown(f"### {row['Stock']}")
             st.metric(f"{row['Stock']} - ₹{row['LTP']}", f"Score {row['Score']}", row['Signal'])
             st.write(f"{row['Breakout']} | RSI {row['RSI']}")
-            st.write(f"Sup ₹{row['Support']} | Res ₹{row['Resistance']}")
-            st.write(f"Profit Chance: {row['Profit Chance']}")
-            if st.button(f"👁️ Laksh Thev - {row['Stock']}", key=f"watch_{row['Stock']}"):
-                if row['Stock'] not in st.session_state['watchlist']:
-                    st.session_state['watchlist'].append(row['Stock'])
-                st.success(f"✅ {row['Stock']} var laksh thevlay!")
-    if st.session_state['watchlist']:
-        st.info(f"👁️ Tuza Watchlist: {', '.join(st.session_state['watchlist'])}")
-    st.divider()
-    st.write("**📊 SAGLE 10 STOCKS - SCORE NUSAR:**")
+            st.write(f"Sup ₹{row['Support']} | Res ₹{row['Resistance']} | Profit {row['Profit Chance']}")
     st.dataframe(eq_df, use_container_width=True, hide_index=True)
     best = eq_df.iloc[0]
     if best['Score'] >= 75:
-        st.success(f"🎯 **AAJCHA BEST EQUITY TRADE: {best['Stock']} @ ₹{best['LTP']} - Score {best['Score']} - {best['Breakout']} - Target ₹{best['Resistance']} - Profit Chance {best['Profit Chance']}**")
-        st.info(f"Strategy: {best['Stock']} Resistance ₹{best['Resistance']} chya var gela ki BUY kar, SL Support ₹{best['Support']} thev.")
+        st.success(f"🎯 **BEST: {best['Stock']} @ ₹{best['LTP']} - Score {best['Score']} - Target ₹{best['Resistance']}**")
     else:
-        st.warning(f"🟡 Aata konatahi Equity stock pakka nahi - Best pan {best['Stock']} Score {best['Score']} aahe. Thamb, 75 yeu de.")
-else:
-    st.write("Equity scan hotoy... Rate Limit aala asel tar 1 min thambun Refresh dab.")
+        st.warning(f"🟡 Aata konatahi pakka nahi - Best {best['Stock']} Score {best['Score']}")
 
 # ===== TRADE BOX =====
 st.divider()
