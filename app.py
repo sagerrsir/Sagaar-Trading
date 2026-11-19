@@ -70,6 +70,7 @@ def get_connection():
 def safe_candle(smart, exchange, token):
     to_date = now_ist_naive
     from_date = to_date - timedelta(days=3)
+    last_err = ""
     for attempt in range(2):
         try:
             time.sleep(0.4)
@@ -83,15 +84,15 @@ def safe_candle(smart, exchange, token):
                     return hist2
             return hist
         except Exception as e:
+            last_err = str(e)
             if "exceeding" in str(e) or "Access denied" in str(e):
                 time.sleep(1.5)
                 continue
-            return None
-    return None
+            break
+    return {"error": last_err}
 
-# ===== FIX: NIFTY/BANKNIFTY/CRUDE - SAGLE FUTURE VARUN GHYA, INDEX TOKEN NAKO =====
+# ===== FIX: SPREAD NAKO - FAKT KHARA FUTURE =====
 def get_underlying(smart, inst):
-    # Cache madhe asel tar parat search nako
     if inst in st.session_state['fut_cache']:
         return st.session_state['fut_cache'][inst]
     cfg = CONFIG[inst]
@@ -99,21 +100,25 @@ def get_underlying(smart, inst):
         time.sleep(0.4)
         res = smart.searchScrip(cfg["fut_exchange"], cfg["fut_search"])
         if not res or not isinstance(res, dict):
-            return None, None
+            return None, None, None
         data_list = res.get('data') or []
         if not data_list:
-            return None, None
+            return None, None, None
         best, best_days, best_sym = None, 9999, ""
         best_exch = cfg["fut_exchange"]
         for item in data_list:
-            sym = item.get('tradingsymbol','')
-            # NIFTY sathi: NIFTY...FUT pahije, NIFTY...CE/PE nako, BANKNIFTY sarkhe dusre nako
-            if 'FUT' not in sym: continue
-            if inst == "NIFTY" and not sym.startswith("NIFTY"): continue
-            if inst == "BANKNIFTY" and not sym.startswith("BANKNIFTY"): continue
-            if inst == "CRUDEOIL MINI":
-                if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
-                if not sym.startswith("CRUDEOIL"): continue
+            sym = item.get('tradingsymbol','').strip()
+            # FIX: Fakt ha pattern chalt - NIFTY26NOV26FUT
+            # NIFTY23NOV2625JAN27FUT sarkha SPREAD nako - tyat 2 date astat
+            if inst == "NIFTY":
+                if not re.match(r'^NIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym):
+                    continue
+            elif inst == "BANKNIFTY":
+                if not re.match(r'^BANKNIFTY\d{2}[A-Z]{3}\d{2}FUT$', sym):
+                    continue
+            elif inst == "CRUDEOIL MINI":
+                if not re.match(r'^CRUDEOIL\d{2}[A-Z]{3}\d{2}FUT$', sym):
+                    continue
             m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
             if not m: continue
             try: exp = datetime.strptime(m.group(1), "%d%b%y")
@@ -123,9 +128,6 @@ def get_underlying(smart, inst):
                 best_days, best, best_sym = days, item.get('symboltoken'), sym
                 best_exch = item.get('exchange', cfg["fut_exchange"])
         if best:
-            # FUT cha exchange + token + sym save kar
-            # do_study la FUT exchange pahije, mhanun tuple madhe exchange pan thevtoy
-            # Format: (token, sym, exchange)
             result = (best, best_sym, best_exch)
             st.session_state['fut_cache'][inst] = result
             return result
@@ -156,10 +158,9 @@ def news_sentiment(news_list):
 def do_study(smart, inst, fut_info):
     cfg = CONFIG[inst]
     token, fut_sym, fut_exch = fut_info
-    # Candle FUT varun, LTP Index varun
     hist = safe_candle(smart, fut_exch, token)
     if not hist or 'data' not in hist or not hist['data']:
-        st.warning(f"{inst} FUT - Data milala nahi: {fut_sym} - {hist}")
+        st.warning(f"{inst} FUT - Data milala nahi: {fut_sym} - Err: {hist.get('error','') if isinstance(hist, dict) else hist}")
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     if len(df) < 20:
@@ -195,7 +196,7 @@ def do_study(smart, inst, fut_info):
     if n_score>0: score+=5; reasons.append(f"✅ NEWS Bullish (+{n_score})")
     elif n_score<0: score-=5; reasons.append(f"❌ NEWS Bearish ({n_score})")
     else: reasons.append("➖ NEWS Neutral")
-    reasons.append(f"📊 Data: {fut_sym} FUT varun (Index la candle yet nahi mhanun)")
+    reasons.append(f"📊 Data: {fut_sym} FUT varun")
     blocked=""
     if inst in ["NIFTY","BANKNIFTY"] and now_ist.hour==9 and now_ist.minute<45: blocked="⏰ 9:45 aadhi NO TRADE"
     if inst=="CRUDEOIL MINI" and now_ist.hour==9 and now_ist.minute<30: blocked="⏰ 9:30 aadhi NO TRADE"
@@ -205,7 +206,6 @@ def do_study(smart, inst, fut_info):
     elif score>=85 and confirm>=3: final="BUY"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA BUY")
     elif score<=15 and confirm>=3: final="SELL"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA SELL")
     else: final="WAIT"; reasons.append(f"⏳ Score {score} - 85 pahije - WAIT")
-    # LTP: NIFTY/BANKNIFTY sathi Index cha, CRUDE sathi FUT cha
     try:
         time.sleep(0.3)
         if inst in ["NIFTY","BANKNIFTY"]:
