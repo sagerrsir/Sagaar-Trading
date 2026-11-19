@@ -49,19 +49,32 @@ def get_underlying(smart, inst):
     cfg = CONFIG[inst]
     if cfg["token"]:
         return cfg["token"], cfg["sym"]
-    res = smart.searchScrip(cfg["exchange"], "CRUDEOIL")
-    best, best_days, best_sym = None, 9999, ""
-    for item in res['data']:
-        sym = item.get('tradingsymbol','')
-        if 'FUT' not in sym: continue
-        if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
-        m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
-        if not m: continue
-        exp = datetime.strptime(m.group(1), "%d%b%y")
-        days = (exp - now_ist.replace(tzinfo=None)).days
-        if 0 <= days < best_days and days < 60:
-            best_days, best, best_sym = days, item['symboltoken'], sym
-    return best, best_sym
+    # CRUDE - FIX: search fail zala tari app padu deu nako
+    try:
+        res = smart.searchScrip(cfg["exchange"], "CRUDEOIL")
+        if not res or not isinstance(res, dict):
+            return None, None
+        data_list = res.get('data') or []
+        if not data_list:
+            return None, None
+        best, best_days, best_sym = None, 9999, ""
+        for item in data_list:
+            sym = item.get('tradingsymbol','')
+            if 'FUT' not in sym: continue
+            if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
+            m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
+            if not m: continue
+            try:
+                exp = datetime.strptime(m.group(1), "%d%b%y")
+            except:
+                continue
+            days = (exp - now_ist.replace(tzinfo=None)).days
+            if 0 <= days < best_days and days < 60:
+                best_days, best, best_sym = days, item.get('symboltoken'), sym
+        return best, best_sym
+    except Exception as e:
+        print(f"CRUDE search fail: {e}")
+        return None, None
 
 def get_news(query):
     try:
@@ -85,11 +98,14 @@ def news_sentiment(news_list):
 
 def do_study(smart, inst, token):
     cfg = CONFIG[inst]
-    to_date = datetime.now(); from_date = to_date - timedelta(days=5)
-    hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
-    if not hist or 'data' not in hist or not hist['data']: return None
-    df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
-    if len(df) < 50: return None
+    try:
+        to_date = datetime.now(); from_date = to_date - timedelta(days=5)
+        hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
+        if not hist or 'data' not in hist or not hist['data']: return None
+        df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
+        if len(df) < 50: return None
+    except:
+        return None
     df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
     df['ema21']=df['close'].ewm(span=21, adjust=False).mean()
@@ -130,9 +146,18 @@ def do_study(smart, inst, token):
     elif score<=15 and confirm>=3: final="SELL"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA SELL")
     else: final="WAIT"; reasons.append(f"⏳ Score {score} - 85 pahije - WAIT")
     try:
-        ltp = smart.ltpData(cfg["exchange"], CONFIG[inst]["sym"] if inst!="CRUDEOIL MINI" else get_underlying(smart, inst)[1], token)['data']['ltp']
+        if inst == "CRUDEOIL MINI":
+            _, sym_name = get_underlying(smart, inst)
+            ltp = smart.ltpData(cfg["exchange"], sym_name, token)['data']['ltp']
+        else:
+            ltp = smart.ltpData(cfg["exchange"], CONFIG[inst]["sym"], token)['data']['ltp']
     except: ltp = float(last['close'])
-    return {"score":score,"final":final,"reasons":reasons,"news":news,"df":df,"last":last,"ltp":ltp,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max(),"instrument":inst,"confirm":confirm,"token":token,"sym_name":CONFIG[inst]["sym"] if inst!="CRUDEOIL MINI" else get_underlying(smart, inst)[1]}
+    # CRUDE sathi sym_name parat
+    try:
+        _, sym_name2 = get_underlying(smart, inst) if inst=="CRUDEOIL MINI" else (None, CONFIG[inst]["sym"])
+    except:
+        sym_name2 = CONFIG[inst]["sym"] if inst!="CRUDEOIL MINI" else ""
+    return {"score":score,"final":final,"reasons":reasons,"news":news,"df":df,"last":last,"ltp":ltp,"sup":df['low'].tail(20).min(),"resi":df['high'].tail(20).max(),"instrument":inst,"confirm":confirm,"token":token,"sym_name":sym_name2}
 
 def make_chart(df):
     fig = go.Figure()
@@ -147,26 +172,30 @@ def make_chart(df):
     return fig
 
 def get_atm_option(smart, inst, signal, ltp):
-    cfg = CONFIG[inst]
-    atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
-    otype = "CE" if signal=="BUY" else "PE"
-    res = smart.searchScrip(cfg["opt_exchange"], cfg["prefix"])
-    cands=[]
-    for item in res['data']:
-        sym=item.get('tradingsymbol','')
-        if 'FUT' in sym: continue
-        if otype not in sym: continue
-        if str(atm) not in sym: continue
-        cands.append(item)
-    def get_exp(s):
-        m=re.search(r'(\d{2}[A-Z]{3}\d{2})', s.get('tradingsymbol',''))
-        if m:
-            try: return datetime.strptime(m.group(1), "%d%b%y")
-            except: return datetime(2030,1,1)
-        return datetime(2030,1,1)
-    cands.sort(key=get_exp)
-    if cands: return cands[0]['tradingsymbol'], cands[0]['symboltoken'], atm
-    return None,None,atm
+    try:
+        cfg = CONFIG[inst]
+        atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
+        otype = "CE" if signal=="BUY" else "PE"
+        res = smart.searchScrip(cfg["opt_exchange"], cfg["prefix"])
+        data_list = res.get('data') or [] if isinstance(res, dict) else []
+        cands=[]
+        for item in data_list:
+            sym=item.get('tradingsymbol','')
+            if 'FUT' in sym: continue
+            if otype not in sym: continue
+            if str(atm) not in sym: continue
+            cands.append(item)
+        def get_exp(s):
+            m=re.search(r'(\d{2}[A-Z]{3}\d{2})', s.get('tradingsymbol',''))
+            if m:
+                try: return datetime.strptime(m.group(1), "%d%b%y")
+                except: return datetime(2030,1,1)
+            return datetime(2030,1,1)
+        cands.sort(key=get_exp)
+        if cands: return cands[0]['tradingsymbol'], cands[0]['symboltoken'], atm
+        return None,None,atm
+    except:
+        return None,None,0
 
 # --- MAIN ---
 smart = get_connection()
@@ -175,10 +204,15 @@ if not smart:
 if time.time() - st.session_state['last_study'] > 30 or not st.session_state['cached_all']:
     new_cache = {}
     for inst in INSTRUMENTS:
-        tok, sym = get_underlying(smart, inst)
-        if tok:
+        try:
+            tok, sym = get_underlying(smart, inst)
+            if not tok:
+                continue
             res = do_study(smart, inst, tok)
             if res: new_cache[inst] = res
+        except Exception as e:
+            print(f"{inst} skip: {e}")
+            continue
     st.session_state['cached_all'] = new_cache
     st.session_state['last_study'] = time.time()
 all_data = st.session_state['cached_all']
@@ -201,7 +235,7 @@ for col, inst in zip([c1,c2,c3], INSTRUMENTS):
             if st.button(f"Trade Ghe - {inst}", key=f"btn_{inst}"):
                 st.session_state['selected_trade'] = inst
         else:
-            st.write(f"{inst} - Data yetoy / Market Band")
+            st.warning(f"{inst} - Data yetoy / Market Band / Thodya velane yeil")
 st.divider()
 
 # ===== TABS - INDEX =====
@@ -210,7 +244,7 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
     with tab:
         d = all_data.get(inst)
         if not d:
-            st.warning(f"{inst} - Market Band aahe / Data yet nahi."); continue
+            st.warning(f"{inst} - Market Band aahe / Data yet nahi / Search fail - Thodya velane parat yeil."); continue
         st.subheader(f"{inst} - Score {d['score']} - {d['final']} - LIVE ₹{d['ltp']:.2f}")
         col1, col2 = st.columns(2)
         with col1:
@@ -239,7 +273,7 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
         fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='Crowd - Bar unch = Lok jasta', height=200, margin=dict(l=0,r=10,t=30,b=0))
         st.plotly_chart(fig_c, use_container_width=True, key=f"crowd_{inst}")
 
-# ===== EQUITY SCANNER - PURN MARKET =====
+# ===== EQUITY SCANNER =====
 st.divider()
 st.subheader("🏆 EQUITY SCANNER - PURN MARKET MADHUN KONTA VADHANAR?")
 st.caption("NIFTY 50 madhle 20 mothe stocks scan kartoy - Konta vadhanar, tyat profit aahe ka?")
