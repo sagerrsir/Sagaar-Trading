@@ -49,7 +49,6 @@ def get_underlying(smart, inst):
     cfg = CONFIG[inst]
     if cfg["token"]:
         return cfg["token"], cfg["sym"]
-    # CRUDE - FIX: search fail zala tari app padu deu nako
     try:
         res = smart.searchScrip(cfg["exchange"], "CRUDEOIL")
         if not res or not isinstance(res, dict):
@@ -73,7 +72,6 @@ def get_underlying(smart, inst):
                 best_days, best, best_sym = days, item.get('symboltoken'), sym
         return best, best_sym
     except Exception as e:
-        print(f"CRUDE search fail: {e}")
         return None, None
 
 def get_news(query):
@@ -98,13 +96,19 @@ def news_sentiment(news_list):
 
 def do_study(smart, inst, token):
     cfg = CONFIG[inst]
+    # FIX: 5 divas nako, 2 divas - Angel la jasta data nako
+    to_date = datetime.now(); from_date = to_date - timedelta(days=2)
     try:
-        to_date = datetime.now(); from_date = to_date - timedelta(days=5)
         hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
-        if not hist or 'data' not in hist or not hist['data']: return None
-        df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
-        if len(df) < 50: return None
-    except:
+    except Exception as e:
+        st.warning(f"{inst} Candle Error: {e}")
+        return None
+    if not hist or 'data' not in hist or not hist['data']:
+        st.warning(f"{inst} - Angel ne data dila nahi: {hist}")
+        return None
+    df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
+    if len(df) < 20:
+        st.warning(f"{inst} - Fakt {len(df)} candle aale, 20 pahije")
         return None
     df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
@@ -152,7 +156,6 @@ def do_study(smart, inst, token):
         else:
             ltp = smart.ltpData(cfg["exchange"], CONFIG[inst]["sym"], token)['data']['ltp']
     except: ltp = float(last['close'])
-    # CRUDE sathi sym_name parat
     try:
         _, sym_name2 = get_underlying(smart, inst) if inst=="CRUDEOIL MINI" else (None, CONFIG[inst]["sym"])
     except:
@@ -200,18 +203,19 @@ def get_atm_option(smart, inst, signal, ltp):
 # --- MAIN ---
 smart = get_connection()
 if not smart:
-    st.error("Login Fail"); st.stop()
+    st.error("Login Fail - API Key / TOTP / PIN check kar"); st.stop()
 if time.time() - st.session_state['last_study'] > 30 or not st.session_state['cached_all']:
     new_cache = {}
     for inst in INSTRUMENTS:
         try:
             tok, sym = get_underlying(smart, inst)
             if not tok:
+                st.warning(f"{inst} - Token milala nahi (CRUDE search fail asel)")
                 continue
             res = do_study(smart, inst, tok)
             if res: new_cache[inst] = res
         except Exception as e:
-            print(f"{inst} skip: {e}")
+            st.warning(f"{inst} skip: {e}")
             continue
     st.session_state['cached_all'] = new_cache
     st.session_state['last_study'] = time.time()
@@ -257,7 +261,7 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
                 close_t = now_ist.replace(hour=15, minute=30, second=0); open_t = now_ist.replace(hour=9, minute=15, second=0)
             else:
                 close_t = now_ist.replace(hour=23, minute=30, second=0); open_t = now_ist.replace(hour=9, minute=0, second=0)
-            if now_ist < open_t: st.warning(f"🔴 Ajun ughadla nahi - {open_t.strftime('%I:%M %p')}")
+            if now_ist < open_t: st.warning(f"🔴 Ajun ughadla nahi - {open_t.strftime('%I:%M %p')} - Pan kalcha chart khali disel")
             elif now_ist > close_t: st.error(f"🔴 BAND zala")
             else:
                 left = (close_t - now_ist).total_seconds()/60
@@ -291,7 +295,7 @@ def scan_equity():
     results = []
     for name, tok in EQUITY_LIST:
         try:
-            hist = smart.getCandleData({"exchange": "NSE", "symboltoken": tok, "interval": "FIFTEEN_MINUTE", "fromdate": (datetime.now()-timedelta(days=3)).strftime("%Y-%m-%d %H:%M"), "todate": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            hist = smart.getCandleData({"exchange": "NSE", "symboltoken": tok, "interval": "FIFTEEN_MINUTE", "fromdate": (datetime.now()-timedelta(days=2)).strftime("%Y-%m-%d %H:%M"), "todate": datetime.now().strftime("%Y-%m-%d %H:%M")})
             if not hist or 'data' not in hist or not hist['data']: continue
             df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
             if len(df) < 30: continue
@@ -352,7 +356,7 @@ if not eq_df.empty:
     else:
         st.warning(f"🟡 Aata konatahi Equity stock pakka nahi - Best pan {best['Stock']} Score {best['Score']} aahe. Thamb, 75 yeu de.")
 else:
-    st.write("Equity scan hotoy... Market band asel tar thamb.")
+    st.write("Equity scan hotoy... Market band asel tar thamb. - Angel ne data dila nahi tar 9:15 la parat yeil.")
 
 # ===== TRADE BOX =====
 st.divider()
