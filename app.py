@@ -32,18 +32,39 @@ if 'cached_all' not in st.session_state: st.session_state['cached_all'] = {}
 if 'last_study' not in st.session_state: st.session_state['last_study'] = 0
 if 'selected_trade' not in st.session_state: st.session_state['selected_trade'] = None
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = []
+if 'smart_obj' not in st.session_state: st.session_state['smart_obj'] = None
+if 'login_time' not in st.session_state: st.session_state['login_time'] = 0
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
+if st.sidebar.button("🔄 Navin Login Kar (Token Expire zala tar)"):
+    st.session_state['smart_obj'] = None
+    st.session_state['login_time'] = 0
+    st.session_state['cached_all'] = {}
+    st.session_state['last_study'] = 0
+    st.rerun()
 
 now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
 
-@st.cache_resource
+# ===== FIX: CACHE NAKO - PRATYEK VELI NAVIN LOGIN / 30 MIN NANTAR PARAT LOGIN =====
 def get_connection():
-    smart = SmartConnect(api_key=st.secrets["ANGEL_API_KEY"])
-    totp = pyotp.TOTP(st.secrets["ANGEL_TOTP"]).now()
-    data = smart.generateSession(st.secrets["ANGEL_CLIENT_ID"], st.secrets["ANGEL_PIN"], totp)
-    return smart if data.get('status') else None
+    # Jar login 30 min peksha juna asel tar parat login kar - nahi tar Invalid Token yeto
+    if st.session_state['smart_obj'] is not None and (time.time() - st.session_state['login_time'] < 1800):
+        return st.session_state['smart_obj']
+    try:
+        smart = SmartConnect(api_key=st.secrets["ANGEL_API_KEY"])
+        totp = pyotp.TOTP(st.secrets["ANGEL_TOTP"]).now()
+        data = smart.generateSession(st.secrets["ANGEL_CLIENT_ID"], st.secrets["ANGEL_PIN"], totp)
+        if data.get('status'):
+            st.session_state['smart_obj'] = smart
+            st.session_state['login_time'] = time.time()
+            return smart
+        else:
+            st.error(f"Login Fail: {data}")
+            return None
+    except Exception as e:
+        st.error(f"Login Error: {e}")
+        return None
 
 def get_underlying(smart, inst):
     cfg = CONFIG[inst]
@@ -71,7 +92,7 @@ def get_underlying(smart, inst):
             if 0 <= days < best_days and days < 60:
                 best_days, best, best_sym = days, item.get('symboltoken'), sym
         return best, best_sym
-    except Exception as e:
+    except:
         return None, None
 
 def get_news(query):
@@ -96,7 +117,6 @@ def news_sentiment(news_list):
 
 def do_study(smart, inst, token):
     cfg = CONFIG[inst]
-    # FIX: 5 divas nako, 2 divas - Angel la jasta data nako
     to_date = datetime.now(); from_date = to_date - timedelta(days=2)
     try:
         hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
@@ -104,7 +124,12 @@ def do_study(smart, inst, token):
         st.warning(f"{inst} Candle Error: {e}")
         return None
     if not hist or 'data' not in hist or not hist['data']:
-        st.warning(f"{inst} - Angel ne data dila nahi: {hist}")
+        # Invalid Token aala tar login parat karayla sang
+        if hist and 'Invalid Token' in str(hist):
+            st.error(f"⚠️ {inst} - Token Expire zala! Sidebar madhe 'Navin Login Kar' dab.")
+            st.session_state['smart_obj'] = None
+        else:
+            st.warning(f"{inst} - Angel ne data dila nahi: {hist}")
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     if len(df) < 20:
