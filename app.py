@@ -34,21 +34,22 @@ if 'selected_trade' not in st.session_state: st.session_state['selected_trade'] 
 if 'watchlist' not in st.session_state: st.session_state['watchlist'] = []
 if 'smart_obj' not in st.session_state: st.session_state['smart_obj'] = None
 if 'login_time' not in st.session_state: st.session_state['login_time'] = 0
+if 'crude_cache' not in st.session_state: st.session_state['crude_cache'] = (None, None)
 if st.sidebar.button("🛑 KILL SWITCH"): st.session_state['killed'] = True
 if st.session_state['killed']:
     st.error("KILL SWITCH ON"); st.stop()
-if st.sidebar.button("🔄 Navin Login Kar (Token Expire zala tar)"):
+if st.sidebar.button("🔄 Navin Login Kar"):
     st.session_state['smart_obj'] = None
     st.session_state['login_time'] = 0
     st.session_state['cached_all'] = {}
     st.session_state['last_study'] = 0
     st.rerun()
 
+# ===== FIX 1: IST VEL - SERVER US MADHE ASLA TARI IST GHYA =====
 now_ist = datetime.now(timezone(timedelta(hours=5, minutes=30)))
+now_ist_naive = now_ist.replace(tzinfo=None)
 
-# ===== FIX: CACHE NAKO - PRATYEK VELI NAVIN LOGIN / 30 MIN NANTAR PARAT LOGIN =====
 def get_connection():
-    # Jar login 30 min peksha juna asel tar parat login kar - nahi tar Invalid Token yeto
     if st.session_state['smart_obj'] is not None and (time.time() - st.session_state['login_time'] < 1800):
         return st.session_state['smart_obj']
     try:
@@ -66,11 +67,39 @@ def get_connection():
         st.error(f"Login Error: {e}")
         return None
 
+def safe_candle(smart, exchange, token):
+    # FIX 2: Rate Limit nako mhanun pratyek call aadhi 0.4 sec thamb + Retry
+    to_date = now_ist_naive
+    from_date = to_date - timedelta(days=3)
+    for attempt in range(2):
+        try:
+            time.sleep(0.4)  # Angel 1 sec la 3 call deto, mhanun thamb
+            hist = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
+            if hist and hist.get('data'):
+                return hist
+            # Data khali asel tar ekda ONE_HOUR ne try kar
+            if attempt == 0:
+                time.sleep(0.5)
+                hist2 = smart.getCandleData({"exchange": exchange, "symboltoken": token, "interval": "ONE_HOUR", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
+                if hist2 and hist2.get('data'):
+                    return hist2
+            return hist
+        except Exception as e:
+            if "exceeding" in str(e) or "Access denied" in str(e):
+                time.sleep(1.5)  # Rate limit aala tar 1.5 sec thambun parat
+                continue
+            return None
+    return None
+
 def get_underlying(smart, inst):
     cfg = CONFIG[inst]
     if cfg["token"]:
         return cfg["token"], cfg["sym"]
+    # CRUDE ekdach shodh, parat parat nako - Rate Limit vachav
+    if st.session_state['crude_cache'][0]:
+        return st.session_state['crude_cache']
     try:
+        time.sleep(0.4)
         res = smart.searchScrip(cfg["exchange"], "CRUDEOIL")
         if not res or not isinstance(res, dict):
             return None, None
@@ -84,13 +113,12 @@ def get_underlying(smart, inst):
             if 'MINI' in sym or sym.startswith("CRUDEOILM"): continue
             m = re.search(r'(\d{2}[A-Z]{3}\d{2})', sym)
             if not m: continue
-            try:
-                exp = datetime.strptime(m.group(1), "%d%b%y")
-            except:
-                continue
-            days = (exp - now_ist.replace(tzinfo=None)).days
+            try: exp = datetime.strptime(m.group(1), "%d%b%y")
+            except: continue
+            days = (exp - now_ist_naive).days
             if 0 <= days < best_days and days < 60:
                 best_days, best, best_sym = days, item.get('symboltoken'), sym
+        st.session_state['crude_cache'] = (best, best_sym)
         return best, best_sym
     except:
         return None, None
@@ -117,23 +145,17 @@ def news_sentiment(news_list):
 
 def do_study(smart, inst, token):
     cfg = CONFIG[inst]
-    to_date = datetime.now(); from_date = to_date - timedelta(days=2)
-    try:
-        hist = smart.getCandleData({"exchange": cfg["exchange"], "symboltoken": token, "interval": "FIFTEEN_MINUTE", "fromdate": from_date.strftime("%Y-%m-%d %H:%M"), "todate": to_date.strftime("%Y-%m-%d %H:%M")})
-    except Exception as e:
-        st.warning(f"{inst} Candle Error: {e}")
-        return None
+    hist = safe_candle(smart, cfg["exchange"], token)
     if not hist or 'data' not in hist or not hist['data']:
-        # Invalid Token aala tar login parat karayla sang
         if hist and 'Invalid Token' in str(hist):
             st.error(f"⚠️ {inst} - Token Expire zala! Sidebar madhe 'Navin Login Kar' dab.")
             st.session_state['smart_obj'] = None
         else:
-            st.warning(f"{inst} - Angel ne data dila nahi: {hist}")
+            st.warning(f"{inst} - Data milala nahi, parat try kartoy... {hist}")
         return None
     df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
     if len(df) < 20:
-        st.warning(f"{inst} - Fakt {len(df)} candle aale, 20 pahije")
+        st.warning(f"{inst} - Fakt {len(df)} candle aale")
         return None
     df['datetime'] = pd.to_datetime(df['datetime'])
     df['ema9']=df['close'].ewm(span=9, adjust=False).mean()
@@ -175,6 +197,7 @@ def do_study(smart, inst, token):
     elif score<=15 and confirm>=3: final="SELL"; reasons.append(f"🎯 {confirm}/3 FILTER PASS - PAKKA SELL")
     else: final="WAIT"; reasons.append(f"⏳ Score {score} - 85 pahije - WAIT")
     try:
+        time.sleep(0.3)
         if inst == "CRUDEOIL MINI":
             _, sym_name = get_underlying(smart, inst)
             ltp = smart.ltpData(cfg["exchange"], sym_name, token)['data']['ltp']
@@ -204,6 +227,7 @@ def get_atm_option(smart, inst, signal, ltp):
         cfg = CONFIG[inst]
         atm = round(ltp / cfg["strike_step"]) * cfg["strike_step"]
         otype = "CE" if signal=="BUY" else "PE"
+        time.sleep(0.4)
         res = smart.searchScrip(cfg["opt_exchange"], cfg["prefix"])
         data_list = res.get('data') or [] if isinstance(res, dict) else []
         cands=[]
@@ -229,13 +253,13 @@ def get_atm_option(smart, inst, signal, ltp):
 smart = get_connection()
 if not smart:
     st.error("Login Fail - API Key / TOTP / PIN check kar"); st.stop()
-if time.time() - st.session_state['last_study'] > 30 or not st.session_state['cached_all']:
+if time.time() - st.session_state['last_study'] > 60 or not st.session_state['cached_all']:
     new_cache = {}
     for inst in INSTRUMENTS:
         try:
             tok, sym = get_underlying(smart, inst)
             if not tok:
-                st.warning(f"{inst} - Token milala nahi (CRUDE search fail asel)")
+                st.warning(f"{inst} - Token milala nahi")
                 continue
             res = do_study(smart, inst, tok)
             if res: new_cache[inst] = res
@@ -245,7 +269,7 @@ if time.time() - st.session_state['last_study'] > 30 or not st.session_state['ca
     st.session_state['cached_all'] = new_cache
     st.session_state['last_study'] = time.time()
 all_data = st.session_state['cached_all']
-st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🎯 ACCURACY MODE | 30 sec la update")
+st.info(f"📅 {now_ist.strftime('%d %b %Y, %A')} | 🕒 {now_ist.strftime('%H:%M:%S')} IST | 🎯 ACCURACY MODE | 60 sec la update")
 
 # ===== TOP DASHBOARD =====
 c1,c2,c3 = st.columns(3)
@@ -264,16 +288,16 @@ for col, inst in zip([c1,c2,c3], INSTRUMENTS):
             if st.button(f"Trade Ghe - {inst}", key=f"btn_{inst}"):
                 st.session_state['selected_trade'] = inst
         else:
-            st.warning(f"{inst} - Data yetoy / Market Band / Thodya velane yeil")
+            st.warning(f"{inst} - Data yetoy / Thodya velane yeil")
 st.divider()
 
-# ===== TABS - INDEX =====
+# ===== TABS =====
 tab1, tab2, tab3 = st.tabs(["📈 NIFTY", "🏦 BANKNIFTY", "🛢️ CRUDEOIL MINI"])
 for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
     with tab:
         d = all_data.get(inst)
         if not d:
-            st.warning(f"{inst} - Market Band aahe / Data yet nahi / Search fail - Thodya velane parat yeil."); continue
+            st.warning(f"{inst} - Data yet nahi - 1 min thambun Refresh dab."); continue
         st.subheader(f"{inst} - Score {d['score']} - {d['final']} - LIVE ₹{d['ltp']:.2f}")
         col1, col2 = st.columns(2)
         with col1:
@@ -302,25 +326,22 @@ for tab, inst in zip([tab1, tab2, tab3], INSTRUMENTS):
         fig_c.update_layout(template='plotly_dark', paper_bgcolor='#131722', plot_bgcolor='#131722', title='Crowd - Bar unch = Lok jasta', height=200, margin=dict(l=0,r=10,t=30,b=0))
         st.plotly_chart(fig_c, use_container_width=True, key=f"crowd_{inst}")
 
-# ===== EQUITY SCANNER =====
+# ===== EQUITY SCANNER - 10 STOCKS (Rate Limit vachav) =====
 st.divider()
 st.subheader("🏆 EQUITY SCANNER - PURN MARKET MADHUN KONTA VADHANAR?")
-st.caption("NIFTY 50 madhle 20 mothe stocks scan kartoy - Konta vadhanar, tyat profit aahe ka?")
+st.caption("Top 10 mothe stocks scan kartoy - Rate Limit yeu naye mhanun 10 kele")
 
 EQUITY_LIST = [
     ("RELIANCE", "2885"), ("HDFCBANK", "1330"), ("ICICIBANK", "3045"), ("INFY", "1802"),
-    ("TCS", "3046"), ("SBIN", "3047"), ("TATAMOTORS", "3048"), ("TATASTEEL", "3049"),
-    ("LT", "3007"), ("TITAN", "3050"), ("ADANIENT", "6401"), ("ITC", "1660"),
-    ("HINDUNILVR", "1394"), ("AXISBANK", "5900"), ("KOTAKBANK", "1929"),
-    ("BAJFINANCE", "317"), ("MARUTI", "10999"), ("SUNPHARMA", "3351"),
-    ("ONGC", "2475"), ("NTPC", "11630"),
+    ("TCS", "3046"), ("SBIN", "3047"), ("LT", "3007"), ("ITC", "1660"),
+    ("AXISBANK", "5900"), ("BAJFINANCE", "317"),
 ]
 
 def scan_equity():
     results = []
     for name, tok in EQUITY_LIST:
         try:
-            hist = smart.getCandleData({"exchange": "NSE", "symboltoken": tok, "interval": "FIFTEEN_MINUTE", "fromdate": (datetime.now()-timedelta(days=2)).strftime("%Y-%m-%d %H:%M"), "todate": datetime.now().strftime("%Y-%m-%d %H:%M")})
+            hist = safe_candle(smart, "NSE", tok)
             if not hist or 'data' not in hist or not hist['data']: continue
             df = pd.DataFrame(hist['data'], columns=['datetime','open','high','low','close','volume'])
             if len(df) < 30: continue
@@ -344,13 +365,15 @@ def scan_equity():
             breakout = "🚀 BREAKOUT" if last['close'] > resi*0.998 else "➖ Range madhe" if last['close']>sup else "⚠️ BREAKDOWN"
             if last['close'] > resi*0.998: score+=10
             profit_pct = ((resi - last['close'])/last['close']*100) if last['close']<resi else ((last['close']-sup)/last['close']*100)
-            try: ltp = smart.ltpData("NSE", name, tok)['data']['ltp']
+            try:
+                time.sleep(0.3)
+                ltp = smart.ltpData("NSE", name, tok)['data']['ltp']
             except: ltp = float(last['close'])
             results.append({"Stock": name, "LTP": round(float(ltp),2), "Score": score, "RSI": round(float(rsi.iloc[-1]),1), "Signal": "🟢 BUY" if score>=75 else "🔴 SELL" if score<=25 else "🟡 WAIT", "Breakout": breakout, "Support": round(float(sup),2), "Resistance": round(float(resi),2), "Volume": f"{int(last['volume']):,}", "Profit Chance": f"{profit_pct:.2f}%"})
         except: continue
     return pd.DataFrame(results)
 
-with st.spinner("Purn market scan kartoy... 20 stocks..."):
+with st.spinner("Purn market scan kartoy... 10 stocks... thoda vel lagel (Rate Limit sathi thambtoy)..."):
     eq_df = scan_equity()
 
 if not eq_df.empty:
@@ -370,9 +393,9 @@ if not eq_df.empty:
                     st.session_state['watchlist'].append(row['Stock'])
                 st.success(f"✅ {row['Stock']} var laksh thevlay!")
     if st.session_state['watchlist']:
-        st.info(f"👁️ Tuza Watchlist: {', '.join(st.session_state['watchlist'])} - Hya var AI laksh thevtoy")
+        st.info(f"👁️ Tuza Watchlist: {', '.join(st.session_state['watchlist'])}")
     st.divider()
-    st.write("**📊 SAGLE 20 STOCKS - SCORE NUSAR:**")
+    st.write("**📊 SAGLE 10 STOCKS - SCORE NUSAR:**")
     st.dataframe(eq_df, use_container_width=True, hide_index=True)
     best = eq_df.iloc[0]
     if best['Score'] >= 75:
@@ -381,7 +404,7 @@ if not eq_df.empty:
     else:
         st.warning(f"🟡 Aata konatahi Equity stock pakka nahi - Best pan {best['Stock']} Score {best['Score']} aahe. Thamb, 75 yeu de.")
 else:
-    st.write("Equity scan hotoy... Market band asel tar thamb. - Angel ne data dila nahi tar 9:15 la parat yeil.")
+    st.write("Equity scan hotoy... Rate Limit aala asel tar 1 min thambun Refresh dab.")
 
 # ===== TRADE BOX =====
 st.divider()
@@ -396,7 +419,7 @@ if sel in all_data:
     cfg = CONFIG[sel]
     sig = d['final']
     if sig == "WAIT":
-        st.warning(f"🟡 {sel} WAIT aahe - Accuracy Mode madhe trade nako. Dusra bagh - NIFTY / BANKNIFTY / CRUDE madhe konata PAKKA aahe ka?")
+        st.warning(f"🟡 {sel} WAIT aahe - Accuracy Mode madhe trade nako.")
         col_a, col_b = st.columns(2)
         with col_a:
             if st.button("⬆️ Tari pan BUY CALL ghe", use_container_width=True): sig="BUY"
