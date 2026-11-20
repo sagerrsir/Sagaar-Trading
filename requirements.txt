@@ -1,5 +1,9 @@
 streamlit
+smartapi-python
 pandas
 yfinance
 requests
 plotly
+pyotp
+logzero
+websocket-client
