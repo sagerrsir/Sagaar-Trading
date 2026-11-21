@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FINAL ALL + ASK AI", layout="wide")
-st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL FIXED", layout="wide")
+st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI - FIXED")
 
 CONFIG = {
     "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
@@ -49,6 +49,12 @@ now_ist_naive = now_ist.replace(tzinfo=None)
 now_hm = now_ist.hour*60 + now_ist.minute
 is_pre_market = now_hm < 555
 is_open = 555 <= now_hm <= 930
+# FIX 3 - Pudcha Trading Divas - Saturday/Sunday skip
+def next_trading_day(d):
+    nd = d + timedelta(days=1)
+    while nd.weekday() >= 5:
+        nd += timedelta(days=1)
+    return nd
 missing = [k for k in ["ANGEL_API_KEY","ANGEL_TOTP","ANGEL_CLIENT_ID","ANGEL_PIN"] if k not in st.secrets]
 if missing:
     st.error(f"❌ Secrets madhe he nahi: {', '.join(missing)}"); st.stop()
@@ -143,8 +149,8 @@ def get_global_study():
         bias=0; txt=[]
         if g.get('wti_chg',0) > 0.5: bias+=1; txt.append("WTI UP")
         elif g.get('wti_chg',0) < -0.5: bias-=1; txt.append("WTI DOWN")
-        if g.get('us_chg',0) < -1: bias-=2; txt.append("US MARKET KHUP PADLA")
-        elif g.get('us_chg',0) > 1: bias+=2; txt.append("US MARKET VADHLA")
+        if g.get('us_chg',0) < -1: bias-=1; txt.append("US MARKET KHUP PADLA - Pan India vegla chalu shakto")
+        elif g.get('us_chg',0) > 1: bias+=1; txt.append("US MARKET VADHLA")
         g['bias']=bias; g['text']=" | ".join(txt) if txt else "Global Neutral"
     except: pass
     st.session_state['global_cache']=g; st.session_state['global_time']=time.time()
@@ -152,7 +158,7 @@ def get_global_study():
 def why_market_falling():
     if time.time() - st.session_state['why_time'] < 300 and st.session_state['why_cache']:
         return st.session_state['why_cache']
-    SCAN_QUERIES = {"WAR": "war Israel Iran Russia Ukraine attack","FED": "US Fed interest rate Powell inflation","FII": "FII selling foreign investors India outflow","OIL": "OPEC crude oil price rise cut","CHINA": "China economy slowdown Taiwan","RESULT": "Nifty company quarterly results profit loss","USD": "dollar rupee fall dollar index","TRUMP": "Trump tariff trade war India"}
+    SCAN_QUERIES = {"WAR": "war Israel Iran Russia Ukraine attack","FED": "US Fed interest rate Powell inflation","FII": "FII selling foreign investors India outflow","OIL": "OPEC crude oil price rise cut","CHINA": "China economy slowdown Taiwan","RESULT": "Nifty company quarterly results profit loss India","USD": "dollar rupee fall dollar index India","TRUMP": "Trump tariff trade war India"}
     reasons=[]; danger=0; all_news={}
     for key, q in SCAN_QUERIES.items():
         news = get_news(q); all_news[key]=news; s = news_sentiment(news)
@@ -167,8 +173,9 @@ def why_market_falling():
             elif key=="USD": reasons.append("💵 DOLLAR VADHLA - Rupee padla")
             elif key=="TRUMP": reasons.append("🇺🇸 TARIFF / TRADE WAR")
     glob = get_global_study()
-    if danger >= 3: verdict=f"🚨 MARKET PADNYACHA KHARA KARAN - {danger} goshti bighadlya!"; action="🛑 AAJ TRADE NAKO"; trade_allow=False
-    elif danger == 2: verdict=f"⚠️ 2 KARAN SAPADLE"; action="🛑 THAMBA"; trade_allow=False
+    if danger >= 4: verdict=f"🚨 MARKET PADNYACHA KHARA KARAN - {danger} goshti bighadlya!"; action="🛑 AAJ TRADE NAKO"; trade_allow=False
+    elif danger == 3: verdict=f"⚠️ 3 KARAN SAPADLE - Pan India Strong asel tar Trade karu shakta"; action="⚠️ SAVDHAN PAN TRADE CHALEL"; trade_allow=True
+    elif danger == 2: verdict=f"⚠️ 2 KARAN SAPADLE"; action="⚠️ SAVDHAN"; trade_allow=True
     elif danger == 1: verdict=f"⚠️ 1 KARAN SAPADLA"; action="⚠️ SAVDHAN"; trade_allow=True
     else: verdict="✅ JAGAT KAHI BIGHADLE NAHI"; action="✅ GHABRU NAKA"; trade_allow=True
     out={"reasons":reasons,"danger":danger,"verdict":verdict,"action":action,"trade_allow":trade_allow,"all_news":all_news,"global":glob}
@@ -176,7 +183,7 @@ def why_market_falling():
 def why_market_rising():
     if time.time() - st.session_state['rise_time'] < 300 and st.session_state['rise_cache']:
         return st.session_state['rise_cache']
-    SCAN = {"FII BUY": "FII buying foreign investors India inflow","GOOD RESULT": "Nifty company quarterly results profit growth record","GOVT CONTRACT": "government contract wins company order crore","RBI": "RBI interest rate cut repo rate India","US UP": "US market rally Dow Jones Nasdaq up","OIL DOWN": "crude oil price fall down","GST / TAX": "GST cut tax relief government India","MONSOON": "monsoon good rain India agriculture"}
+    SCAN = {"FII BUY": "FII buying foreign investors India inflow","GOOD RESULT": "Nifty company quarterly results profit growth record India","GOVT CONTRACT": "government contract wins company order crore India","RBI": "RBI interest rate cut repo rate India","US UP": "US market rally Dow Jones Nasdaq up","OIL DOWN": "crude oil price fall down","GST / TAX": "GST cut tax relief government India","MONSOON": "monsoon good rain India agriculture"}
     reasons=[]; power=0; all_rise_news={}
     for key, q in SCAN.items():
         news = get_news(q); all_rise_news[key]=news; s = news_sentiment(news)
@@ -200,7 +207,7 @@ def investment_flow_study():
     if time.time() - st.session_state['inv_time'] < 300 and st.session_state['inv_cache']:
         return st.session_state['inv_cache']
     score=0; reasons=[]; hot_stocks=[]
-    for q, label in [("FII DII buying selling yesterday NSE","FII/DII"),("FII bought shares bulk deal today","BULK DEAL"),("foreign investment India company stake buy","FOREIGN INVEST"),("mutual fund buying stocks India SIP","MF BUYING"),("promoter buying shares open market","PROMOTER BUY")]:
+    for q, label in [("FII DII buying selling yesterday NSE India","FII/DII"),("FII bought shares bulk deal today India","BULK DEAL"),("foreign investment India company stake buy","FOREIGN INVEST"),("mutual fund buying stocks India SIP","MF BUYING"),("promoter buying shares open market India","PROMOTER BUY")]:
         news = get_news(q); s = news_sentiment(news)
         if s >= 2:
             score+=2; reasons.append(f"💰 {label} - Paisa YETOY - {news[0] if news else ''}")
@@ -208,7 +215,7 @@ def investment_flow_study():
                 for comp in ["RELIANCE","HDFC","ICICI","INFY","TCS","ADANI","TATA","VEDANTA","VODAFONE","JIO","SBIN","ITC","LT","TITAN","HAL","BEL"]:
                     if comp in n.upper(): hot_stocks.append(f"{comp} - {n[:80]}")
         elif s <= -2: score-=2; reasons.append(f"💸 {label} - Paisa BAHER JATOY - {news[0] if news else ''}")
-    for sec, q in [("DEFENCE","defence stocks order government India"),("PSU BANK","PSU bank profit government"),("GREEN ENERGY","green energy solar investment India"),("IT","IT stocks US deal Infosys TCS"),("PHARMA","pharma stocks USFDA approval")]:
+    for sec, q in [("DEFENCE","defence stocks order government India"),("PSU BANK","PSU bank profit government India"),("GREEN ENERGY","green energy solar investment India"),("IT","IT stocks US deal Infosys TCS India"),("PHARMA","pharma stocks USFDA approval India")]:
         news = get_news(q); s = news_sentiment(news)
         if s >= 2: reasons.append(f"🔥 {sec} SECTOR HOT - {news[0] if news else ''}"); hot_stocks.append(f"{sec} SECTOR - HOT")
         elif s <= -2: reasons.append(f"❄️ {sec} SECTOR COLD")
@@ -221,21 +228,25 @@ def court_verdict_study():
     if time.time() - st.session_state['court_time'] < 300 and st.session_state['court_cache']:
         return st.session_state['court_cache']
     danger=0; reasons=[]; affected=[]
-    SCAN = {"SUPREME COURT":"Supreme Court verdict company shares","HIGH COURT":"High Court order company stock","SEBI":"SEBI action fine company shares","GOVT ORDER":"government order ban company shares","ADANI":"Adani court case verdict","VODAFONE":"Vodafone Idea AGR court verdict","VEDANTA":"Vedanta court case mining","TAX":"income tax raid company GST notice"}
+    # FIX 1 - Fakt India cha Court - UK/US cha news nako - GOVT ORDER ani TAX kadhle
+    SCAN = {"SUPREME COURT":"Supreme Court India verdict company shares","HIGH COURT":"High Court India order company stock","SEBI":"SEBI action fine company shares India","ADANI":"Adani court case verdict India","VODAFONE":"Vodafone Idea AGR court verdict India","VEDANTA":"Vedanta court case mining India"}
     for key, q in SCAN.items():
         news = get_news(q); s = news_sentiment(news)
-        if s <= -2: danger+=1; reasons.append(f"⚖️ {key} - COURT / SEBI NEGATIVE - {news[0] if news else ''}"); affected.append(f"{key} - NEGATIVE - {news[0][:100] if news else ''}")
-        elif s >= 2: reasons.append(f"✅ {key} - COURT POSITIVE - {news[0] if news else ''}"); affected.append(f"{key} - POSITIVE - {news[0][:100] if news else ''}")
+        # Fakt India cha news ghe - UK / GOV.UK asel tar sodun de
+        news_india = [n for n in news if "GOV.UK" not in n and "Atherton" not in n and "UK " not in n]
+        if not news_india: continue
+        if s <= -2: danger+=1; reasons.append(f"⚖️ {key} - COURT / SEBI NEGATIVE - {news_india[0] if news_india else ''}"); affected.append(f"{key} - NEGATIVE - {news_india[0][:100] if news_india else ''}")
+        elif s >= 2: reasons.append(f"✅ {key} - COURT POSITIVE - {news_india[0] if news_india else ''}"); affected.append(f"{key} - POSITIVE - {news_india[0][:100] if news_india else ''}")
     if danger >= 2: verdict=f"🚨 COURT CHA MOTHHA NIKAL - {danger} company var parinam"; trade_allow=False
-    elif danger == 1: verdict="⚠️ 1 COURT NIKAL AALA - Tya company pasun lamb raha"; trade_allow=True
-    else: verdict="✅ AAJ COURT CHA KONTAHI MOTHHA NIKAL NAHI"; trade_allow=True
+    elif danger == 1: verdict="⚠️ 1 COURT NIKAL AALA - Tya company pasun lamb raha - Pan NIFTY la farak nahi"; trade_allow=True
+    else: verdict="✅ AAJ COURT CHA KONTAHI MOTHHA NIKAL NAHI - India Court Clear"; trade_allow=True
     out={"danger":danger,"verdict":verdict,"trade_allow":trade_allow,"reasons":reasons,"affected":affected}
     st.session_state['court_cache']=out; st.session_state['court_time']=time.time(); return out
 def govt_contract_study():
     if time.time() - st.session_state['govt_time'] < 300 and st.session_state['govt_cache']:
         return st.session_state['govt_cache']
     score=0; reasons=[]; contract_stocks=[]
-    SCAN = {"DEFENCE CONTRACT": "defence contract HAL BEL Mazagon government order","RAILWAY CONTRACT": "railway contract RVNL IRCON L&T order wins","ROAD CONTRACT": "NHAI road highway contract company wins order","POWER CONTRACT": "power contract NTPC Power Grid solar order wins","GOVT TENDER": "government tender wins company bags order crore","MAKE IN INDIA": "Make in India government order defence"}
+    SCAN = {"DEFENCE CONTRACT": "defence contract HAL BEL Mazagon government order India","RAILWAY CONTRACT": "railway contract RVNL IRCON L&T order wins India","ROAD CONTRACT": "NHAI road highway contract company wins order India","POWER CONTRACT": "power contract NTPC Power Grid solar order wins India","GOVT TENDER": "government tender wins company bags order crore India","MAKE IN INDIA": "Make in India government order defence India"}
     for key, q in SCAN.items():
         news = get_news(q); s = news_sentiment(news)
         if s >= 2:
@@ -263,13 +274,14 @@ def pre_market_study(why_data, rise_data):
             if len(closes)>=2:
                 chg=(closes[-1]-closes[-2])/closes[-2]*100
                 if name in ["US S&P 500","US Nasdaq"]:
-                    if chg < -1: reasons.append(f"🇺🇸 {name} RATRI KHUP PADLA {chg:+.2f}%"); score-=12; danger+=1
-                    elif chg < -0.3: reasons.append(f"🇺🇸 {name} Thoda padla {chg:+.2f}%"); score-=5
-                    elif chg > 1: reasons.append(f"🇺🇸 {name} KHUP VADHLA {chg:+.2f}%"); score+=12
-                    elif chg > 0.3: reasons.append(f"🇺🇸 {name} Thoda vadhla {chg:+.2f}%"); score+=5
+                    # FIX 4 - US la kami vajan - India US peksha vegla chaltoy
+                    if chg < -1: reasons.append(f"🇺🇸 {name} RATRI KHUP PADLA {chg:+.2f}% - Pan India vegla chalu shakto, FII bagh"); score-=5; danger+=1
+                    elif chg < -0.3: reasons.append(f"🇺🇸 {name} Thoda padla {chg:+.2f}%"); score-=2
+                    elif chg > 1: reasons.append(f"🇺🇸 {name} KHUP VADHLA {chg:+.2f}%"); score+=5
+                    elif chg > 0.3: reasons.append(f"🇺🇸 {name} Thoda vadhla {chg:+.2f}%"); score+=2
                 if name in ["Japan Nikkei","Hong Kong"]:
-                    if chg < -1: reasons.append(f"🌏 {name} SAKALI PADLA {chg:+.2f}%"); score-=8; danger+=1
-                    elif chg > 1: reasons.append(f"🌏 {name} SAKALI VADHLA {chg:+.2f}%"); score+=8
+                    if chg < -1: reasons.append(f"🌏 {name} SAKALI PADLA {chg:+.2f}%"); score-=4; danger+=1
+                    elif chg > 1: reasons.append(f"🌏 {name} SAKALI VADHLA {chg:+.2f}%"); score+=4
         except: pass
     for sym, name in [("CL=F","Crude Oil"), ("GC=F","Gold"), ("USDINR=X","USD/INR")]:
         try:
@@ -277,21 +289,21 @@ def pre_market_study(why_data, rise_data):
             j=r.json(); closes=j['chart']['result'][0]['indicators']['quote'][0]['close']; closes=[c for c in closes if c is not None]
             if len(closes)>=2:
                 chg=(closes[-1]-closes[-2])/closes[-2]*100
-                if name=="Crude Oil" and chg > 1.5: reasons.append(f"🛢️ CRUDE RATRI KHUP VADHLA {chg:+.2f}%"); score-=8; danger+=1
-                elif name=="Crude Oil" and chg < -1.5: reasons.append(f"🛢️ CRUDE PADLA {chg:+.2f}%"); score+=8
-                if name=="Gold" and chg > 1: reasons.append(f"🥇 GOLD VADHLA {chg:+.2f}%"); score-=5; danger+=1
-                if name=="USD/INR" and chg > 0.3: reasons.append(f"💵 DOLLAR VADHLA {chg:+.2f}%"); score-=5
+                if name=="Crude Oil" and chg > 1.5: reasons.append(f"🛢️ CRUDE RATRI KHUP VADHLA {chg:+.2f}%"); score-=4; danger+=1
+                elif name=="Crude Oil" and chg < -1.5: reasons.append(f"🛢️ CRUDE PADLA {chg:+.2f}%"); score+=4
+                if name=="Gold" and chg > 1: reasons.append(f"🥇 GOLD VADHLA {chg:+.2f}%"); score-=2; danger+=1
+                if name=="USD/INR" and chg > 0.3: reasons.append(f"💵 DOLLAR VADHLA {chg:+.2f}%"); score-=2
         except: pass
     if not why_data.get('trade_allow', True): danger+=2; reasons.append(f"🚨 RATRI BIGHADLAY - {why_data['verdict']}")
-    else: reasons.append(f"✅ RATRI JAGAT KAHI BIGHADLE NAHI")
+    else: reasons.append(f"✅ RATRI JAGAT KAHI BIGHADLE NAHI - Kinva India Strong Aahe")
     if rise_data and rise_data['power']>=3: score+=10; reasons.append(f"🚀 VADHNYACHA KARAN STRONG - {rise_data['verdict']}")
     elif rise_data and rise_data['power']>=2: score+=5; reasons.append(f"🟢 VADHNYACHA KARAN - {rise_data['verdict']}")
-    if why_data.get('danger',0)>=2: score-=10
+    if why_data.get('danger',0)>=4: score-=10
     score=max(5,min(95,score))
     if score >= 70: plan="🟢 AAJ VAR JANAR - 9:15 la BUY CE chi tayari kar"; action="BUY"; plan_detail="US + Asia + Crude + Ka Vadhtoy sagla changla. 9:15 la lagech BUY CE ghe."
     elif score <= 30: plan="🔴 AAJ KHALI JANAR - 9:15 la BUY PE chi tayari kar"; action="SELL"; plan_detail="US padla / War / Crude vadhla / Ka Padtoy strong. 9:15 la lagech BUY PE ghe."
-    elif danger >= 2: plan="🛑 AAJ TRADE NAKO - JAGAT BIGHADLAY"; action="WAIT"; plan_detail="Ratri 2-3 goshti bighadlya. 10:15 paryant vaat bagha."
-    else: plan="🟡 AAJ SIDEWAYS - 9:15 la WAIT - Level todla ki ghe"; action="WAIT"; plan_detail="Kahi kalat nahi. Var gela tar CE, Khali gela tar PE."
+    elif danger >= 3 and rise_data['power'] < 2: plan="🛑 AAJ TRADE NAKO - JAGAT BIGHADLAY"; action="WAIT"; plan_detail="Ratri 3+ goshti bighadlya ani Vadhtoy kamkuvat. 10:15 paryant vaat bagha."
+    else: plan="🟡 AAJ SIDEWAYS / BREAKOUT - 9:15 la WAIT - Level todla ki ghe"; action="WAIT"; plan_detail="Vadhtoy = Padtoy - Donhi sarkhe. Var gela tar CE, Khali gela tar PE. Level todla ki ghe."
     out={"score":score,"plan":plan,"action":action,"plan_detail":plan_detail,"reasons":reasons,"danger":danger,"why":why_data,"rise":rise_data}
     st.session_state['pre_cache']=out; st.session_state['pre_time']=time.time(); return out
 def get_funds_and_margin(smart):
@@ -343,7 +355,7 @@ def timeframe_signal(df):
     return s, ", ".join(why)
 def super_ai_brain(df15, df5, df60, inst, news_score, global_data, why_data, rise_data, pre_data, inv_data, court_data, govt_data):
     s15, w15 = timeframe_signal(df15); s5, w5 = timeframe_signal(df5); s60, w60 = timeframe_signal(df60)
-    total = s15*2 + s5*1 + s60*2 + news_score + (global_data.get('bias',0)*2 if inst=="CRUDEOIL MINI" else 0)
+    total = s15*2 + s5*1 + s60*2 + news_score + (global_data.get('bias',0)*1 if inst=="CRUDEOIL MINI" else 0)
     if pre_data:
         if pre_data['action']=="BUY": total+=3
         elif pre_data['action']=="SELL": total-=3
@@ -355,21 +367,24 @@ def super_ai_brain(df15, df5, df60, inst, news_score, global_data, why_data, ris
         elif govt_data['action']=="SELL": total-=3
     if rise_data and rise_data['power']>=3: total+=3
     elif rise_data and rise_data['power']>=2: total+=1
-    if not why_data.get('trade_allow', True): total-=10
-    if not court_data.get('trade_allow', True): total-=10
+    # FIX 2 - BLOCK nako, fakt kami kar - India Strong asel tar Trade chalel
+    if not why_data.get('trade_allow', True): total-=3
+    if not court_data.get('trade_allow', True): total-=3
     signals=[np.sign(s15), np.sign(s5), np.sign(s60)]
     agree=len(set([x for x in signals if x!=0]))==1 if any(x!=0 for x in signals) else False
     ai_up=max(5,min(95,50+total*5))
-    if total>=9 and agree and s15>0 and s60>0 and why_data.get('trade_allow', True) and court_data.get('trade_allow', True):
+    if total>=9 and agree and s15>0 and s60>0:
         final="BUY"; pattern="🚀 SUPER AI: 3 TIMEFRAME BUY"; salah="✅ PAKKA BUY"; risk="LOW"
     elif total<=-9 and agree and s15<0 and s60<0:
         final="SELL"; pattern="📉 SUPER AI: 3 TIMEFRAME SELL"; salah="✅ PAKKA SELL"; risk="LOW"
-    elif not why_data.get('trade_allow', True) or not court_data.get('trade_allow', True):
-        final="WAIT"; pattern="🚨 JAGAT / COURT BIGHADLAY"; salah="🛑 TRADE NAKO"; risk="HIGH"
+    elif not why_data.get('trade_allow', True) and rise_data and rise_data['power']>=3:
+        final="BUY"; pattern="⚠️ JAGAT BIGHADLA PAN INDIA STRONG - BUY"; salah="✅ SAVDHAN PAN BUY"; risk="MEDIUM"
+    elif not why_data.get('trade_allow', True) and court_data.get('danger',0)>=2:
+        final="WAIT"; pattern="🚨 JAGAT + COURT DONHI BIGHADLE"; salah="🛑 TRADE NAKO"; risk="HIGH"
     elif not agree:
-        final="WAIT"; pattern="⚠️ TIMEFRAME CONFUSED"; salah="🛑 THAMBA"; risk="HIGH"
+        final="WAIT"; pattern="⚠️ TIMEFRAME CONFUSED - Level todla ki ghe"; salah="🛑 THAMBA - Level bagh"; risk="MEDIUM"
     else:
-        final="WAIT"; pattern="⏳ HALF SIGNAL"; salah="🛑 THAMBA"; risk="MEDIUM"
+        final="WAIT"; pattern="⏳ HALF SIGNAL - Level todla ki ghe"; salah="🛑 THAMBA - Level bagh"; risk="MEDIUM"
     return {"ai_up":ai_up,"ai_down":100-ai_up,"pattern":pattern,"salah":salah,"risk":risk,"s15":s15,"s5":s5,"s60":s60,"total":total,"agree":agree,"w15":w15,"w5":w5,"w60":w60,"final":final}
 def do_study(smart, inst, fut_info, why_data, rise_data, pre_data, inv_data, court_data, govt_data):
     cfg=CONFIG[inst]; token, fut_sym, fut_exch = fut_info
@@ -410,7 +425,7 @@ def do_study(smart, inst, fut_info, why_data, rise_data, pre_data, inv_data, cou
     if inst=="CRUDEOIL MINI" and (now_ist.hour < 14 or now_ist.hour >= 16): blocked="⏰ CRUDE: Fakt Dupari 2-4"
     if ai['risk']=="HIGH": blocked=f"🛑 {ai['salah']}"
     if blocked: final="WAIT"; reasons.append(f"🛑 {blocked}")
-    else: final=ai['final']; reasons.append(f"🎯 FINAL: {final}")
+    else: final=ai['final']; reasons.append(f"🎯 FINAL: {final} - Level todla ki ghe")
     try:
         if inst in ["NIFTY","BANKNIFTY"]: ltp=smart.ltpData(cfg["exchange"], cfg["sym"], cfg["token"])['data']['ltp']
         else: ltp=smart.ltpData(fut_exch, fut_sym, token)['data']['ltp']
@@ -481,28 +496,28 @@ def bhavishya_ai_predict(df15, ai_data, pre_data, inv_data, govt_data, court_dat
     if rise_data and rise_data['power']>=3: fund_score+=2
     elif rise_data and rise_data['power']>=1: fund_score+=1
     if court_data and not court_data.get('trade_allow', True): fund_score-=3
-    if why_data and not why_data.get('trade_allow', True): fund_score-=3
+    if why_data and not why_data.get('trade_allow', True): fund_score-=1
     total_score = ema_trend*2 + fund_score + (1 if mom>0 else -1 if mom<0 else 0)
     if total_score >= 5:
-        udya = "🟢 UDYA VAR JANAR"; udya_conf = 75 + min(20, total_score*2); udya_move = atr*1.2
+        udya = "🟢 PUDHCHA DIVAS VAR JANAR"; udya_conf = 75 + min(20, total_score*2); udya_move = atr*1.2
         udya_target = close + udya_move; udya_sl = close - atr*0.5
-        udya_salla = "Udya BUY CE chi tayari kar - Sakali 9:15 la CE ghe"
+        udya_salla = "Pudhcha trading divshi BUY CE chi tayari kar - Sakali 9:15 la CE ghe"
     elif total_score <= -5:
-        udya = "🔴 UDYA KHALI JANAR"; udya_conf = 75 + min(20, abs(total_score)*2); udya_move = atr*1.2
+        udya = "🔴 PUDHCHA DIVAS KHALI JANAR"; udya_conf = 75 + min(20, abs(total_score)*2); udya_move = atr*1.2
         udya_target = close - udya_move; udya_sl = close + atr*0.5
-        udya_salla = "Udya BUY PE chi tayari kar - Sakali 9:15 la PE ghe"
+        udya_salla = "Pudhcha trading divshi BUY PE chi tayari kar - Sakali 9:15 la PE ghe"
     elif total_score >= 2:
-        udya = "🟡 UDYA THODA VAR JANAR"; udya_conf = 60; udya_move = atr*0.6
+        udya = "🟡 PUDHCHA DIVAS THODA VAR JANAR"; udya_conf = 60; udya_move = atr*0.6
         udya_target = close + udya_move; udya_sl = close - atr*0.5
-        udya_salla = "Udya thoda var jail - Ardha qty ghe"
+        udya_salla = "Pudhcha divas thoda var jail - Ardha qty ghe"
     elif total_score <= -2:
-        udya = "🟡 UDYA THODA KHALI JANAR"; udya_conf = 60; udya_move = atr*0.6
+        udya = "🟡 PUDHCHA DIVAS THODA KHALI JANAR"; udya_conf = 60; udya_move = atr*0.6
         udya_target = close - udya_move; udya_sl = close + atr*0.5
-        udya_salla = "Udya thoda khali jail - Ardha qty ghe"
+        udya_salla = "Pudhcha divas thoda khali jail - Ardha qty ghe"
     else:
-        udya = "⚪ UDYA SIDEWAYS RAHNAR"; udya_conf = 55; udya_move = atr*0.3
+        udya = "⚪ PUDHCHA DIVAS SIDEWAYS RAHNAR"; udya_conf = 55; udya_move = atr*0.3
         udya_target = close; udya_sl = close - atr
-        udya_salla = "Udya sideways rahil - Trade gheu naka - Level todla tarach ghe"
+        udya_salla = "Pudhcha divas sideways rahil - Trade gheu naka - Level todla tarach ghe"
     if abs(total_score) >= 5:
         teen_divas = f"Trend STRONG aahe - Pudhe 3 divas hech disha rahil - {udya} cha trend tiknar"
         athvada = f"Pudcha athvada pan {udya} dishene janar - Motha trend suru zala aahe"
@@ -522,7 +537,7 @@ def get_daily_quiz():
         {"q": "Govt ne HAL la ₹10,000 Cr Defence Contract dila - Kay hoil?", "options": ["HAL cha share padel", "HAL cha share vadhel", "Kahi honar nahi", "Market band hoil"], "ans": 1, "exp": "✅ Barobar - Govt Contract milala ki company la paisa + kaam milto - Mhanun share vadhto."},
         {"q": "FII lok India madhun paisa kadhun ghetayat - Market kay karel?", "options": ["Market vadhel", "Market padel", "Kahi honar nahi", "Rupee vadhel"], "ans": 1, "exp": "✅ Barobar - FII vikle ki market padto. FII ne kal ₹2000 Cr vikle tar dusrya divshi market padnar."},
         {"q": "Supreme Court ne company viruddha nikal dila - Kay karaycha?", "options": ["Tya company cha CE ghe", "Tya company pasun lamb raha", "Double qty ghe", "Kahi nahi"], "ans": 1, "exp": "✅ Barobar - Court nikal aalyavar share 10-20% halto - Tya divshi tya company cha Option gheu naka."},
-        {"q": "US Market ratri 2% padla - Aaj NIFTY kay karel?", "options": ["NIFTY khup vadhel", "NIFTY padnyachi shakyata jast", "NIFTY band rahil", "Crude vadhel"], "ans": 1, "exp": "✅ Barobar - US padla ki India pan padto. US padla tar aaj BUY PE chi tayari kar."},
+        {"q": "US Market ratri 2% padla - Aaj NIFTY kay karel?", "options": ["NIFTY khup vadhel", "NIFTY padnyachi shakyata jast", "NIFTY band rahil", "Crude vadhel"], "ans": 1, "exp": "✅ Barobar - US padla ki India pan padto. Pan aata India US peksha vegla chaltoy - FII baghaycha."},
         {"q": "Crude Oil khup vadhla - Konala fayda / nuksan?", "options": ["India la fayda", "India la nuksan - Tel mahag", "Kahi honar nahi", "Bank la fayda"], "ans": 1, "exp": "✅ Barobar - India tel baherun anto. Crude vadhla ki India la nuksan - Market padto."},
         {"q": "9:15 la trade ghyaycha - Aadhi kay baghaycha?", "options": ["Fakt Chart", "Pre-Market + Jag + Investment + Court + Govt Contract", "Kahi nahi", "Fakt News"], "ans": 1, "exp": "✅ Barobar - Fakt Chart baghun trade gheu naka. 8:00-9:15 madhe sagla study kar - Mag 9:15 la trade ghe."},
         {"q": "₹10,000 madhe SELL Option ka karu naka?", "options": ["Margin kami aahe", "SELL la 3x Margin lagto", "Donhi barobar", "Kahi nahi"], "ans": 2, "exp": "✅ Barobar - Donhi barobar - ₹10,000 madhe SELL la margin purat nahi. SELL la 3x margin lagto."},
@@ -567,7 +582,7 @@ def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, c
         lines.append(f"  - 5m {ai['s5']} | 15m {ai['s15']} | 1h {ai['s60']} | {ai['pattern']}")
         lines.append(f"  - Support ₹{d['sup']:.0f} | Resistance ₹{d['resi']:.0f} | RSI {d['last']['rsi']:.1f}")
         fut = bhavishya_ai_predict(d['df'], d['ai'], pre_data, inv_data, govt_data, court_data, why_data, rise_data)
-        if fut: lines.append(f"  - 🔮 BHAVISHYA: {fut['udya']} - Udya Target ₹{fut['udya_target']:.2f} - Confidence {fut['udya_conf']}%")
+        if fut: lines.append(f"  - 🔮 BHAVISHYA: {fut['udya']} - Pudhcha Target ₹{fut['udya_target']:.2f} - Confidence {fut['udya_conf']}%")
     lines.append("---")
     lines.append("**🤖 AI CHA FINAL UTTAR:**")
     if topic == "VAR JANAR KA?":
@@ -575,24 +590,25 @@ def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, c
         elif rise_data['power'] > why_data['danger']: lines.append(f"🟢 HO, THODA VAR JANAR - Vadhtoy Power {rise_data['power']} > Padtoy {why_data['danger']} - Ardha qty ne CE ghe.")
         else: lines.append(f"❌ NAHI - {target_inst} var janar nahi - Karan: {why_data['verdict']} - Padtoy jor jast aahe - CE gheu naka.")
     elif topic == "KHALI JANAR KA?":
-        if why_data['danger'] >= 2 and d and d['ai']['ai_down'] >= 60: lines.append(f"✅ HO - {target_inst} KHALI JANAR - Karan: {why_data['verdict']} + SUPER AI Khali {d['ai']['ai_down']}% - Support ₹{d['sup']:.0f} todla ki BUY PE ghe.")
+        if why_data['danger'] >= 3 and d and d['ai']['ai_down'] >= 60: lines.append(f"✅ HO - {target_inst} KHALI JANAR - Karan: {why_data['verdict']} + SUPER AI Khali {d['ai']['ai_down']}% - Support ₹{d['sup']:.0f} todla ki BUY PE ghe.")
         elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 HO, THODA KHALI JANAR - Padtoy {why_data['danger']} > Vadhtoy {rise_data['power']} - PE gheu shakta.")
         else: lines.append(f"❌ NAHI - {target_inst} khali janar nahi - Karan: {rise_data['verdict']} - Vadhtoy jor jast aahe.")
     elif topic == "TRADE GHYAYCHA KA?":
         if d and d['ai']['ai_up'] >= 70: lines.append(f"✅ HO - AAJ TRADE GHE - {target_inst} Var {d['ai']['ai_up']}% - Resistance ₹{d['resi']:.0f} todla ki BUY CE ghe - SL + Target pakka thev.")
         elif d and d['ai']['ai_down'] >= 70: lines.append(f"✅ HO - AAJ TRADE GHE - {target_inst} Khali {d['ai']['ai_down']}% - Support ₹{d['sup']:.0f} todla ki BUY PE ghe.")
-        else: lines.append(f"🛑 NAKO - AAJ TRADE GHEU NAKA - Var {d['ai']['ai_up'] if d else '-'}% / Khali {d['ai']['ai_down'] if d else '-'}% - Signal clear nahi - Level todla tarach ghe.")
-    elif topic == "COURT": lines.append(f"{court_data['verdict']} - " + (" | ".join(court_data['reasons']) if court_data['reasons'] else "Aaj court cha motha nikal nahi - Trade karu shakta."))
+        elif d and d['ai']['risk']=="HIGH": lines.append(f"🛑 NAKO - JAGAT + COURT DONHI BIGHADLE - Aaj trade gheu naka.")
+        else: lines.append(f"⏳ WAIT - Var {d['ai']['ai_up'] if d else '-'}% / Khali {d['ai']['ai_down'] if d else '-'}% - Level todla ki ghe - Resistance ₹{d['resi']:.0f} / Support ₹{d['sup']:.0f}")
+    elif topic == "COURT": lines.append(f"{court_data['verdict']} - " + (" | ".join(court_data['reasons']) if court_data['reasons'] else "Aaj India Court cha motha nikal nahi - Trade karu shakta."))
     elif topic == "GOVT CONTRACT": lines.append(f"{govt_data['verdict']} - " + (" | ".join(govt_data['contract_stocks'][:3]) if govt_data['contract_stocks'] else "Aaj konala motha contract nahi."))
     elif topic == "INVESTMENT": lines.append(f"{inv_data['verdict']} - " + (" | ".join(inv_data['reasons'][:2]) if inv_data['reasons'] else ""))
     elif topic == "BHAVISHYA":
         if d:
             fut = bhavishya_ai_predict(d['df'], d['ai'], pre_data, inv_data, govt_data, court_data, why_data, rise_data)
-            if fut: lines.append(f"{fut['udya']} - Udya Target ₹{fut['udya_target']:.2f} - {fut['udya_salla']} - 3 Divas: {fut['teen_divas']}")
+            if fut: lines.append(f"{fut['udya']} - Pudhcha Target ₹{fut['udya_target']:.2f} - {fut['udya_salla']} - 3 Divas: {fut['teen_divas']}")
     else:
         if rise_data['power'] > why_data['danger']: lines.append(f"🟢 AAJ VAR JANYACHA JOR JAST - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - CE var laksh thev.")
         elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 AAJ KHALI JANYACHA JOR JAST - Padtoy {why_data['danger']} vs Vadhtoy {rise_data['power']} - PE var laksh thev.")
-        else: lines.append(f"🟡 AAJ SIDEWAYS - Vadhtoy {rise_data['power']} = Padtoy {why_data['danger']} - Level todla ki ghe.")
+        else: lines.append(f"🟡 AAJ DONHI SARKHE - Vadhtoy {rise_data['power']} = Padtoy {why_data['danger']} - BREAKOUT DAY - Level todla ki ghe.")
     lines.append("")
     lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi - SL nehmi thev.")
     return "\n".join(lines)
@@ -607,15 +623,15 @@ with st.spinner("🌅 AI Pre-Market Study kartoy..."):
 st.markdown("## 🌅 PRE-MARKET STUDY - 8:00 to 9:15 - AAJCHA PURN ANDAJ")
 if is_pre_market: st.info("⏰ AATA PRE-MARKET AAHE - 9:15 aadhi Trade BAND")
 elif is_open: st.success("🟢 MARKET CHALU - 9:15 ZALA - Trade Gheu Shakta")
-else: st.info("🌙 MARKET BAND - Udya 8:00 la bagh")
+else: st.info("🌙 MARKET BAND - Pudhcha Trading Divas Monday la bagh")
 if pre_data['action']=="BUY": st.success(f"### {pre_data['plan']}"); st.success(f"**Score {pre_data['score']}/100 - {pre_data['plan_detail']}**")
 elif pre_data['action']=="SELL": st.error(f"### {pre_data['plan']}"); st.error(f"**Score {pre_data['score']}/100 - {pre_data['plan_detail']}**")
-elif pre_data['danger']>=2: st.error(f"### {pre_data['plan']}"); st.error(f"**{pre_data['plan_detail']}**")
+elif pre_data['danger']>=3 and rise_data['power']<2: st.error(f"### {pre_data['plan']}"); st.error(f"**{pre_data['plan_detail']}**")
 else: st.warning(f"### {pre_data['plan']}"); st.warning(f"**Score {pre_data['score']}/100 - {pre_data['plan_detail']}**")
 for r in pre_data['reasons']: st.write(r)
 if is_pre_market: st.warning("⏰ 9:15 AADHI TRADE BUTTON BAND - Fakt Plan bagh")
 st.markdown("## 🔴 KA PADTOY? - KHALI JANYACHA KARAN")
-if why_data['danger']>=3: st.error(f"### {why_data['verdict']}")
+if why_data['danger']>=4: st.error(f"### {why_data['verdict']}")
 elif why_data['danger']>=1: st.warning(f"### {why_data['verdict']}")
 else: st.success(f"### {why_data['verdict']}")
 for r in why_data['reasons']: st.write(r)
@@ -637,7 +653,7 @@ if rise_data['power'] > why_data['danger']:
 elif why_data['danger'] > rise_data['power']:
     st.error(f"🔴 PADNYACHA JOR JAST - Padtoy Danger {why_data['danger']} vs Vadhtoy Power {rise_data['power']} - AAJ PE chi shakyata jast")
 else:
-    st.warning(f"🟡 DONHI SARKHE - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - AAJ SIDEWAYS - Level todla ki ghe")
+    st.warning(f"🟡 DONHI SARKHE - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - BREAKOUT DAY - Level todla ki ghe - CE kinva PE")
 st.markdown("## 💰 INVESTMENT STUDY - KONATYA COMPANY MADHE PAISA YETOY?")
 if inv_data['action']=="BUY": st.success(f"### {inv_data['verdict']}")
 elif inv_data['action']=="SELL": st.error(f"### {inv_data['verdict']}")
@@ -646,7 +662,7 @@ for r in inv_data['reasons']: st.write(r)
 if inv_data['hot_stocks']:
     st.markdown("#### 🔥 HOT STOCKS:")
     for h in inv_data['hot_stocks'][:5]: st.success(f"- {h}")
-st.markdown("## ⚖️ COURT / SEBI / GOVT NIKAL")
+st.markdown("## ⚖️ COURT / SEBI / GOVT NIKAL - FAKT INDIA")
 if court_data['danger']>=2: st.error(f"### {court_data['verdict']}")
 elif court_data['danger']==1: st.warning(f"### {court_data['verdict']}")
 else: st.success(f"### {court_data['verdict']}")
@@ -682,14 +698,14 @@ m1,m2,m3=st.columns(3)
 with m1: st.metric("Available Cash", f"₹{avail:.0f}")
 with m2: st.metric("Used Margin", f"₹{used:.0f}")
 with m3: st.metric("Aajcha P&L", f"₹{st.session_state['day_pnl']:.0f}")
-st.subheader("🤖 SUPER AI SALLA - Sagla Ekatra")
+st.subheader("🤖 SUPER AI SALLA - Sagla Ekatra - FIXED")
 for inst in INSTRUMENTS:
     d=all_data.get(inst)
     if d:
         ai=d['ai']
         if ai['risk']=="HIGH": st.error(f"**{inst}**: {ai['pattern']} | {ai['salah']}")
         elif d['final'] in ["BUY","SELL"]: st.success(f"**{inst}**: {ai['pattern']} | Var {ai['ai_up']}%")
-        else: st.warning(f"**{inst}**: {ai['pattern']} | Var {ai['ai_up']}%")
+        else: st.warning(f"**{inst}**: {ai['pattern']} | Var {ai['ai_up']}% - Level todla ki ghe")
 c1,c2,c3=st.columns(3)
 for col, inst in zip([c1,c2,c3], INSTRUMENTS):
     with col:
@@ -702,22 +718,22 @@ for col, inst in zip([c1,c2,c3], INSTRUMENTS):
             st.write(f"RSI {d['last']['rsi']:.1f} | Sup ₹{d['sup']:.0f} | Res ₹{d['resi']:.0f}")
             if st.button(f"Trade Ghe - {inst}", key=f"btn_{inst}"): st.session_state['selected_trade']=inst
 st.divider()
-st.markdown("## 🔮 BHAVISHYA AI - SUPER CHYA PUDHCHA - UDYA / 3 DIVAS / ATHVADA KAY HONAR?")
+st.markdown("## 🔮 BHAVISHYA AI - PUDHCHA TRADING DIVAS KAY HONAR?")
 for inst in INSTRUMENTS:
     d = all_data.get(inst)
     if not d: continue
     fut = bhavishya_ai_predict(d['df'], d['ai'], pre_data, inv_data, govt_data, court_data, why_data, rise_data)
     if not fut: continue
-    udya_date = (now_ist + timedelta(days=1)).strftime('%d %b %Y, %A')
+    udya_date = next_trading_day(now_ist).strftime('%d %b %Y, %A')
     col_f1, col_f2, col_f3 = st.columns(3)
     with col_f1:
         st.markdown(f"### 🔮 {inst} - BHAVISHYA")
         if "VAR JANAR" in fut['udya'] and "THODA" not in fut['udya']: st.success(f"**{fut['udya']}**")
         elif "KHALI JANAR" in fut['udya'] and "THODA" not in fut['udya']: st.error(f"**{fut['udya']}**")
         else: st.warning(f"**{fut['udya']}**")
-        st.write(f"**Udya: {udya_date}**")
+        st.write(f"**Pudhcha Trading Divas: {udya_date}**")
         st.write(f"**Aajcha Close:** ₹{fut['close']:.2f}")
-        st.write(f"**Udya Target:** ₹{fut['udya_target']:.2f}")
+        st.write(f"**Pudhcha Target:** ₹{fut['udya_target']:.2f}")
         st.write(f"**Confidence:** {fut['udya_conf']}%")
         st.write(f"**Salla:** {fut['udya_salla']}")
     with col_f2:
@@ -731,11 +747,11 @@ for inst in INSTRUMENTS:
         st.markdown("### 🎯 FUTURE LEVELS")
         st.write(f"**Aajcha Support:** ₹{fut['sup']:.0f}")
         st.write(f"**Aajcha Resistance:** ₹{fut['res']:.0f}")
-        st.write(f"**Udya Support:** ₹{fut['fut_sup']:.0f}")
-        st.write(f"**Udya Resistance:** ₹{fut['fut_res']:.0f}")
-        if "VAR JANAR" in fut['udya']: st.success("💡 Udya CE var laksh thev - Resistance todla ki CE ghe")
-        elif "KHALI JANAR" in fut['udya']: st.error("💡 Udya PE var laksh thev - Support todla ki PE ghe")
-        else: st.warning("💡 Udya Sideways - Level todla tarach ghe")
+        st.write(f"**Pudhcha Support:** ₹{fut['fut_sup']:.0f}")
+        st.write(f"**Pudhcha Resistance:** ₹{fut['fut_res']:.0f}")
+        if "VAR JANAR" in fut['udya']: st.success("💡 Pudhcha divshi CE var laksh thev - Resistance todla ki CE ghe")
+        elif "KHALI JANAR" in fut['udya']: st.error("💡 Pudhcha divshi PE var laksh thev - Support todla ki PE ghe")
+        else: st.warning("💡 Pudhcha divas Sideways - Level todla tarach ghe")
     st.divider()
 st.divider()
 tab1, tab2, tab3 = st.tabs(["📈 NIFTY", "🏦 BANKNIFTY", "🛢️ CRUDEOIL MINI"])
@@ -758,8 +774,8 @@ else: sel=st.selectbox("Konatya var Trade ghyaycha?", INSTRUMENTS)
 if sel in all_data:
     d=all_data[sel]; cfg=CONFIG[sel]; sig=d['final']; ai=d['ai']
     st.info(f"🤖 SUPER AI: {ai['pattern']} | Var {ai['ai_up']}% | SAKAL: {pre_data['plan']} | VADHTOY: {rise_data['verdict']} | PADTOY: {why_data['verdict']} | GOVT: {govt_data['verdict']}")
-    if not why_data['trade_allow'] or not court_data['trade_allow']:
-        st.error(f"🛑 TRADE BAND - Jag / Court bighadlay")
+    if ai['risk']=="HIGH":
+        st.error(f"🛑 TRADE BAND - Jag + Court donhi bighadle")
     if is_pre_market:
         st.error("🛑 9:15 AADHI TRADE BAND - Fakt Plan bagh.")
     else:
@@ -775,7 +791,7 @@ if sel in all_data:
             else: st.error(msg_ce)
             if st.button(f"🟢 BUY CE GHE - {ce['sym']}", key=f"buy_ce_{sel}", use_container_width=True):
                 if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
-                elif not why_data['trade_allow'] or not court_data['trade_allow']: st.error("🛑 JAG / COURT BIGHADLAY")
+                elif ai['risk']=="HIGH": st.error("🛑 JAG + COURT DONHI BIGHADLE")
                 elif not ok_ce: st.error("🛑 MARGIN KAMI")
                 elif not LIVE_MODE: st.warning(f"PAPER ORDER: BUY {ce['sym']} @ ₹{ce['ltp']}"); st.session_state['trades']+=1
                 else:
@@ -790,22 +806,22 @@ if sel in all_data:
             else: st.error(msg_pe)
             if st.button(f"🔴 BUY PE GHE - {pe['sym']}", key=f"buy_pe_{sel}", use_container_width=True):
                 if st.session_state['trades']>=MAX_TRADES: st.warning("Max Trades zale!")
-                elif not why_data['trade_allow'] or not court_data['trade_allow']: st.error("🛑 JAG / COURT BIGHADLAY")
+                elif ai['risk']=="HIGH": st.error("🛑 JAG + COURT DONHI BIGHADLE")
                 elif not ok_pe: st.error("🛑 MARGIN KAMI")
                 elif not LIVE_MODE: st.warning(f"PAPER ORDER: BUY {pe['sym']} @ ₹{pe['ltp']}"); st.session_state['trades']+=1
                 else:
                     oid=smart.placeOrder({"variety":"NORMAL","tradingsymbol":pe['sym'],"symboltoken":pe['tok'],"transactiontype":"BUY","exchange":cfg["opt_exchange"],"ordertype":"MARKET","producttype":"INTRADAY","duration":"DAY","price":"0","squareoff":str(int(TARGET_POINTS*100)),"stoploss":str(int(SL_POINTS*100)),"quantity":str(cfg['qty'])})
                     st.success(f"✅ BUY PE ORDER GELI! {oid}"); st.session_state['trades']+=1
         st.divider()
-        st.markdown("### 🤖 AI CHA FINAL DECISION")
-        if ai['ai_up']>=70 and why_data['trade_allow'] and court_data['trade_allow']:
+        st.markdown("### 🤖 AI CHA FINAL DECISION - FIXED")
+        if ai['ai_up']>=70:
             st.success(f"🎯 AADHI **BUY CE** GHE - Var {ai['ai_up']}% - Resistance ₹{d['resi']:.0f} todla ki ghe.")
         elif ai['ai_down']>=70:
             st.error(f"🎯 AADHI **BUY PE** GHE - Khali {ai['ai_down']}% - Support ₹{d['sup']:.0f} todla ki ghe.")
-        elif not why_data['trade_allow'] or not court_data['trade_allow']:
-            st.error(f"🛑 DONHI NAKO - {why_data['verdict']} / {court_data['verdict']}")
+        elif ai['risk']=="HIGH":
+            st.error(f"🛑 DONHI NAKO - Jag + Court donhi bighadle - Aaj trade nako")
         else:
-            st.warning(f"⏳ DONHI WAIT - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Level baher gela ki jo yeil to ghe.")
+            st.warning(f"⏳ BREAKOUT DAY - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Resistance ₹{d['resi']:.0f} var gela tar CE, Support ₹{d['sup']:.0f} khali gela tar PE - Level todla ki ghe.")
 st.divider()
 st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL")
 st.info("💡 Udaharan: `Aaj NIFTY var jail ka?` / `Aaj trade gheu ka?` / `Udya kay honar?` / `Court cha kay zala?` / `Konala Govt Contract milala?`")
