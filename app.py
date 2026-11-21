@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FINAL FIXED", layout="wide")
-st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI - FIXED")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL FIXED + GOLD", layout="wide")
+st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD")
 
 CONFIG = {
     "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
@@ -49,7 +49,6 @@ now_ist_naive = now_ist.replace(tzinfo=None)
 now_hm = now_ist.hour*60 + now_ist.minute
 is_pre_market = now_hm < 555
 is_open = 555 <= now_hm <= 930
-# FIX 3 - Pudcha Trading Divas - Saturday/Sunday skip
 def next_trading_day(d):
     nd = d + timedelta(days=1)
     while nd.weekday() >= 5:
@@ -228,12 +227,10 @@ def court_verdict_study():
     if time.time() - st.session_state['court_time'] < 300 and st.session_state['court_cache']:
         return st.session_state['court_cache']
     danger=0; reasons=[]; affected=[]
-    # FIX 1 - Fakt India cha Court - UK/US cha news nako - GOVT ORDER ani TAX kadhle
     SCAN = {"SUPREME COURT":"Supreme Court India verdict company shares","HIGH COURT":"High Court India order company stock","SEBI":"SEBI action fine company shares India","ADANI":"Adani court case verdict India","VODAFONE":"Vodafone Idea AGR court verdict India","VEDANTA":"Vedanta court case mining India"}
     for key, q in SCAN.items():
         news = get_news(q); s = news_sentiment(news)
-        # Fakt India cha news ghe - UK / GOV.UK asel tar sodun de
-        news_india = [n for n in news if "GOV.UK" not in n and "Atherton" not in n and "UK " not in n]
+        news_india = [n for n in news if "GOV.UK" not in n and "Atherton" not in n]
         if not news_india: continue
         if s <= -2: danger+=1; reasons.append(f"⚖️ {key} - COURT / SEBI NEGATIVE - {news_india[0] if news_india else ''}"); affected.append(f"{key} - NEGATIVE - {news_india[0][:100] if news_india else ''}")
         elif s >= 2: reasons.append(f"✅ {key} - COURT POSITIVE - {news_india[0] if news_india else ''}"); affected.append(f"{key} - POSITIVE - {news_india[0][:100] if news_india else ''}")
@@ -274,7 +271,6 @@ def pre_market_study(why_data, rise_data):
             if len(closes)>=2:
                 chg=(closes[-1]-closes[-2])/closes[-2]*100
                 if name in ["US S&P 500","US Nasdaq"]:
-                    # FIX 4 - US la kami vajan - India US peksha vegla chaltoy
                     if chg < -1: reasons.append(f"🇺🇸 {name} RATRI KHUP PADLA {chg:+.2f}% - Pan India vegla chalu shakto, FII bagh"); score-=5; danger+=1
                     elif chg < -0.3: reasons.append(f"🇺🇸 {name} Thoda padla {chg:+.2f}%"); score-=2
                     elif chg > 1: reasons.append(f"🇺🇸 {name} KHUP VADHLA {chg:+.2f}%"); score+=5
@@ -367,7 +363,6 @@ def super_ai_brain(df15, df5, df60, inst, news_score, global_data, why_data, ris
         elif govt_data['action']=="SELL": total-=3
     if rise_data and rise_data['power']>=3: total+=3
     elif rise_data and rise_data['power']>=2: total+=1
-    # FIX 2 - BLOCK nako, fakt kami kar - India Strong asel tar Trade chalel
     if not why_data.get('trade_allow', True): total-=3
     if not court_data.get('trade_allow', True): total-=3
     signals=[np.sign(s15), np.sign(s5), np.sign(s60)]
@@ -543,8 +538,61 @@ def get_daily_quiz():
         {"q": "₹10,000 madhe SELL Option ka karu naka?", "options": ["Margin kami aahe", "SELL la 3x Margin lagto", "Donhi barobar", "Kahi nahi"], "ans": 2, "exp": "✅ Barobar - Donhi barobar - ₹10,000 madhe SELL la margin purat nahi. SELL la 3x margin lagto."},
     ]
     return quizzes[now_ist.day % len(quizzes)]
+def gold_silver_study():
+    out = {}
+    for sym, name in [("GC=F","GOLD"), ("SI=F","SILVER"), ("CL=F","CRUDE")]:
+        try:
+            r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}?interval=1d&range=5d", timeout=4, headers={"User-Agent":"Mozilla/5.0"})
+            j = r.json(); closes = j['chart']['result'][0]['indicators']['quote'][0]['close']
+            closes = [c for c in closes if c is not None]
+            if len(closes) >= 2:
+                chg = (closes[-1]-closes[-2])/closes[-2]*100
+                chg5 = (closes[-1]-closes[0])/closes[0]*100
+                out[name] = {"price": closes[-1], "chg": chg, "chg5": chg5}
+        except: pass
+    return out
+def gold_why_answer():
+    news = get_news("gold price today fall down dollar")
+    reasons = []
+    reasons.append("💵 DOLLAR VADHLA - Dollar vadhla ki Gold padto - Karan Gold Dollar madhe vikla jato")
+    reasons.append("🏦 US FED - Vyaj vadhla / Kami nahi kela tar Gold padto")
+    reasons.append("🪖 WAR THAMBALA - War thambala ki lok Gold vikun paisa kadhtat - Safe Haven kami hoto")
+    reasons.append("📈 SHARE MARKET VADHLA - NIFTY vadhla ki lok Gold madhun paisa kadhun Share madhe taktat")
+    reasons.append("💰 PROFIT BOOKING - Gold khup vadhla hota, lok profit gheun vikta yet")
+    return news, reasons
 def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data):
     q = question.lower()
+    if any(w in q for w in ["gold", "sona", "son", "silver", "chandi"]):
+        is_gold = "gold" in q or "sona" in q or "son" in q
+        name = "GOLD" if is_gold else "SILVER"
+        gs = gold_silver_study()
+        g = gs.get(name, {})
+        news, reasons = gold_why_answer()
+        lines = []
+        lines.append(f"**Tuza Question:** {question}")
+        lines.append(f"**AI ne olakhla Topic:** {name} - NIFTY NAHI")
+        lines.append("---")
+        if g:
+            lines.append(f"**🥇 {name} LIVE:** ${g['price']:.2f} | Aaj {g['chg']:+.2f}% | 5 Divas {g['chg5']:+.2f}%")
+            if g['chg'] < 0: lines.append(f"✅ HO - {name} AAJ PADTOY - {g['chg']:+.2f}% padla aahe")
+            else: lines.append(f"🟢 {name} AAJ VADHTOY - {g['chg']:+.2f}% vadhla aahe - Padat nahi")
+        lines.append(f"**🤖 {name} KA PADTOY / VADHTOY? - KHARI KARNA:**")
+        for r in reasons: lines.append(f"  - {r}")
+        lines.append("**📰 GOLD / SILVER CHA NEWS:**")
+        for n in news[:3]: lines.append(f"  - {n}")
+        lines.append("---")
+        lines.append("**🤖 AI CHA FINAL UTTAR:**")
+        if g and g['chg'] < -1:
+            lines.append(f"🔴 HO - {name} khup padtoy - Karan Dollar vadhla + Share Market vadhla + Profit Booking. {name} cha Support todla ki ajun padel - Aaj {name} gheu naka.")
+        elif g and g['chg'] < 0:
+            lines.append(f"🟡 {name} thoda padtoy - Motha padnar nahi - Thoda vaat bagh - Support var aala ki gheu shakta.")
+        elif g and g['chg'] >= 0:
+            lines.append(f"🟢 {name} padat nahi - Vadh toy - Tuza andaj chukicha aahe - Chart bagh.")
+        else:
+            lines.append(f"🟡 {name} cha live data aala nahi - Pan varchi 5 karna bagh - Dollar + FED + Share Market mule Gold halto.")
+        lines.append("")
+        lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi.")
+        return "\n".join(lines)
     lines = []
     if any(w in q for w in ["var", "up", "vadh", "vadhel", "ce", "buy ce", "call"]): topic = "VAR JANAR KA?"
     elif any(w in q for w in ["khali", "pad", "down", "pe", "put", "buy pe"]): topic = "KHALI JANAR KA?"
@@ -607,7 +655,7 @@ def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, c
             if fut: lines.append(f"{fut['udya']} - Pudhcha Target ₹{fut['udya_target']:.2f} - {fut['udya_salla']} - 3 Divas: {fut['teen_divas']}")
     else:
         if rise_data['power'] > why_data['danger']: lines.append(f"🟢 AAJ VAR JANYACHA JOR JAST - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - CE var laksh thev.")
-        elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 AAJ KHALI JANYACHA JOR JAST - Padtoy {why_data['danger']} vs Vadhtoy {rise_data['power']} - PE var laksh thev.")
+        elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 AAJ KHALI JANYACHA JOR JAST - Padtoy {why_data['danger']} vs Vadhtoy {why_data['danger']} - PE var laksh thev.")
         else: lines.append(f"🟡 AAJ DONHI SARKHE - Vadhtoy {rise_data['power']} = Padtoy {why_data['danger']} - BREAKOUT DAY - Level todla ki ghe.")
     lines.append("")
     lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi - SL nehmi thev.")
@@ -823,17 +871,17 @@ if sel in all_data:
         else:
             st.warning(f"⏳ BREAKOUT DAY - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Resistance ₹{d['resi']:.0f} var gela tar CE, Support ₹{d['sup']:.0f} khali gela tar PE - Level todla ki ghe.")
 st.divider()
-st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL")
-st.info("💡 Udaharan: `Aaj NIFTY var jail ka?` / `Aaj trade gheu ka?` / `Udya kay honar?` / `Court cha kay zala?` / `Konala Govt Contract milala?`")
-user_q = st.text_input("✍️ Ithe tuza Question type kar:", placeholder="Ud: Aaj NIFTY var jail ka?", key="ai_ask_input")
+st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL - GOLD / SILVER PAN CHALEL")
+st.info("💡 Udaharan: `Aaj NIFTY var jail ka?` / `gold ka padat ahe` / `silver var jail ka?` / `Aaj trade gheu ka?` / `Udya kay honar?`")
+user_q = st.text_input("✍️ Ithe tuza Question type kar:", placeholder="Ud: gold ka padat ahe / Aaj NIFTY var jail ka?", key="ai_ask_input")
 col_ask1, col_ask2 = st.columns([1, 3])
 with col_ask1:
     ask_btn = st.button("🤖 AI LA VICHAR", key="ai_ask_btn", use_container_width=True)
 with col_ask2:
-    quick_q = st.selectbox("🚀 Lagich Vichar - Ek dab:", ["", "Aaj NIFTY var jail ka?", "Aaj NIFTY khali jail ka?", "Aaj trade gheu ka?", "Udya kay honar?", "Konala Govt Contract milala?", "Court cha kay zala?", "FII paisa takta yet ka?"], key="ai_quick_q")
+    quick_q = st.selectbox("🚀 Lagich Vichar - Ek dab:", ["", "Aaj NIFTY var jail ka?", "Aaj NIFTY khali jail ka?", "Aaj trade gheu ka?", "Udya kay honar?", "Konala Govt Contract milala?", "Court cha kay zala?", "FII paisa takta yet ka?", "gold ka padat ahe", "silver var jail ka?", "gold var jail ka?"], key="ai_quick_q")
 final_q = user_q if user_q else quick_q
 if ask_btn and final_q:
-    with st.spinner("🤖 AI Purn Study kartoy - Pre-Market + Ka Vadhtoy + Ka Padtoy + Investment + Court + Govt + Bhavishya..."):
+    with st.spinner("🤖 AI Purn Study kartoy - Pre-Market + Ka Vadhtoy + Ka Padtoy + Investment + Court + Govt + Bhavishya + Gold..."):
         ans = ai_ask_answer(final_q, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data)
     st.success("### 🤖 AI CHA UTTAR:")
     st.markdown(ans)
