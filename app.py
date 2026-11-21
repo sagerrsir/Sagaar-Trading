@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FINAL ALL", layout="wide")
-st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL ALL + ASK AI", layout="wide")
+st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI")
 
 CONFIG = {
     "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
@@ -528,6 +528,74 @@ def get_daily_quiz():
         {"q": "₹10,000 madhe SELL Option ka karu naka?", "options": ["Margin kami aahe", "SELL la 3x Margin lagto", "Donhi barobar", "Kahi nahi"], "ans": 2, "exp": "✅ Barobar - Donhi barobar - ₹10,000 madhe SELL la margin purat nahi. SELL la 3x margin lagto."},
     ]
     return quizzes[now_ist.day % len(quizzes)]
+def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data):
+    q = question.lower()
+    lines = []
+    if any(w in q for w in ["var", "up", "vadh", "vadhel", "ce", "buy ce", "call"]): topic = "VAR JANAR KA?"
+    elif any(w in q for w in ["khali", "pad", "down", "pe", "put", "buy pe"]): topic = "KHALI JANAR KA?"
+    elif any(w in q for w in ["trade", "gheu", "ghyaycha", "konta", "kay karu"]): topic = "TRADE GHYAYCHA KA?"
+    elif any(w in q for w in ["court", "nikal"]): topic = "COURT"
+    elif any(w in q for w in ["govt", "contract", "sarkar"]): topic = "GOVT CONTRACT"
+    elif any(w in q for w in ["fii", "investment", "paisa"]): topic = "INVESTMENT"
+    elif any(w in q for w in ["udya", "tomorrow", "bhavishya", "future"]): topic = "BHAVISHYA"
+    else: topic = "GENERAL"
+    lines.append(f"**Tuza Question:** {question}")
+    lines.append(f"**AI ne olakhla Topic:** {topic}")
+    lines.append("---")
+    lines.append("**📊 AI cha PURN STUDY:**")
+    lines.append(f"🌅 PRE-MARKET: {pre_data['plan']} - Score {pre_data['score']}/100")
+    lines.append(f"🔴 KA PADTOY: {why_data['verdict']} - Danger {why_data['danger']}")
+    for r in why_data['reasons']: lines.append(f"  - {r}")
+    lines.append(f"🟢 KA VADHTOY: {rise_data['verdict']} - Power {rise_data['power']}")
+    for r in rise_data['reasons']: lines.append(f"  - {r}")
+    lines.append(f"💰 INVESTMENT: {inv_data['verdict']}")
+    lines.append(f"⚖️ COURT: {court_data['verdict']}")
+    lines.append(f"🏛️ GOVT CONTRACT: {govt_data['verdict']}")
+    if govt_data['contract_stocks']:
+        for h in govt_data['contract_stocks'][:3]: lines.append(f"  - {h}")
+    target_inst = None
+    for inst in ["NIFTY", "BANKNIFTY", "CRUDEOIL MINI"]:
+        if inst.lower() in q or ("bank" in q and inst=="BANKNIFTY") or (("crude" in q or "oil" in q or "tel" in q) and inst=="CRUDEOIL MINI"):
+            target_inst = inst; break
+    if not target_inst: target_inst = "NIFTY"
+    d = all_data.get(target_inst)
+    if d:
+        ai = d['ai']
+        lines.append(f"---")
+        lines.append(f"**🎯 {target_inst} cha SUPER AI:**")
+        lines.append(f"  - LIVE: ₹{d['ltp']:.2f} | Var {ai['ai_up']}% | Khali {ai['ai_down']}%")
+        lines.append(f"  - 5m {ai['s5']} | 15m {ai['s15']} | 1h {ai['s60']} | {ai['pattern']}")
+        lines.append(f"  - Support ₹{d['sup']:.0f} | Resistance ₹{d['resi']:.0f} | RSI {d['last']['rsi']:.1f}")
+        fut = bhavishya_ai_predict(d['df'], d['ai'], pre_data, inv_data, govt_data, court_data, why_data, rise_data)
+        if fut: lines.append(f"  - 🔮 BHAVISHYA: {fut['udya']} - Udya Target ₹{fut['udya_target']:.2f} - Confidence {fut['udya_conf']}%")
+    lines.append("---")
+    lines.append("**🤖 AI CHA FINAL UTTAR:**")
+    if topic == "VAR JANAR KA?":
+        if rise_data['power'] >= 2 and d and d['ai']['ai_up'] >= 60: lines.append(f"✅ HO - {target_inst} VAR JANAR - Karan: {rise_data['verdict']} + SUPER AI Var {d['ai']['ai_up']}% - Resistance ₹{d['resi']:.0f} todla ki BUY CE ghe.")
+        elif rise_data['power'] > why_data['danger']: lines.append(f"🟢 HO, THODA VAR JANAR - Vadhtoy Power {rise_data['power']} > Padtoy {why_data['danger']} - Ardha qty ne CE ghe.")
+        else: lines.append(f"❌ NAHI - {target_inst} var janar nahi - Karan: {why_data['verdict']} - Padtoy jor jast aahe - CE gheu naka.")
+    elif topic == "KHALI JANAR KA?":
+        if why_data['danger'] >= 2 and d and d['ai']['ai_down'] >= 60: lines.append(f"✅ HO - {target_inst} KHALI JANAR - Karan: {why_data['verdict']} + SUPER AI Khali {d['ai']['ai_down']}% - Support ₹{d['sup']:.0f} todla ki BUY PE ghe.")
+        elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 HO, THODA KHALI JANAR - Padtoy {why_data['danger']} > Vadhtoy {rise_data['power']} - PE gheu shakta.")
+        else: lines.append(f"❌ NAHI - {target_inst} khali janar nahi - Karan: {rise_data['verdict']} - Vadhtoy jor jast aahe.")
+    elif topic == "TRADE GHYAYCHA KA?":
+        if d and d['ai']['ai_up'] >= 70: lines.append(f"✅ HO - AAJ TRADE GHE - {target_inst} Var {d['ai']['ai_up']}% - Resistance ₹{d['resi']:.0f} todla ki BUY CE ghe - SL + Target pakka thev.")
+        elif d and d['ai']['ai_down'] >= 70: lines.append(f"✅ HO - AAJ TRADE GHE - {target_inst} Khali {d['ai']['ai_down']}% - Support ₹{d['sup']:.0f} todla ki BUY PE ghe.")
+        else: lines.append(f"🛑 NAKO - AAJ TRADE GHEU NAKA - Var {d['ai']['ai_up'] if d else '-'}% / Khali {d['ai']['ai_down'] if d else '-'}% - Signal clear nahi - Level todla tarach ghe.")
+    elif topic == "COURT": lines.append(f"{court_data['verdict']} - " + (" | ".join(court_data['reasons']) if court_data['reasons'] else "Aaj court cha motha nikal nahi - Trade karu shakta."))
+    elif topic == "GOVT CONTRACT": lines.append(f"{govt_data['verdict']} - " + (" | ".join(govt_data['contract_stocks'][:3]) if govt_data['contract_stocks'] else "Aaj konala motha contract nahi."))
+    elif topic == "INVESTMENT": lines.append(f"{inv_data['verdict']} - " + (" | ".join(inv_data['reasons'][:2]) if inv_data['reasons'] else ""))
+    elif topic == "BHAVISHYA":
+        if d:
+            fut = bhavishya_ai_predict(d['df'], d['ai'], pre_data, inv_data, govt_data, court_data, why_data, rise_data)
+            if fut: lines.append(f"{fut['udya']} - Udya Target ₹{fut['udya_target']:.2f} - {fut['udya_salla']} - 3 Divas: {fut['teen_divas']}")
+    else:
+        if rise_data['power'] > why_data['danger']: lines.append(f"🟢 AAJ VAR JANYACHA JOR JAST - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - CE var laksh thev.")
+        elif why_data['danger'] > rise_data['power']: lines.append(f"🔴 AAJ KHALI JANYACHA JOR JAST - Padtoy {why_data['danger']} vs Vadhtoy {rise_data['power']} - PE var laksh thev.")
+        else: lines.append(f"🟡 AAJ SIDEWAYS - Vadhtoy {rise_data['power']} = Padtoy {why_data['danger']} - Level todla ki ghe.")
+    lines.append("")
+    lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi - SL nehmi thev.")
+    return "\n".join(lines)
 # --- MAIN ---
 smart=get_connection()
 if not smart:
@@ -738,6 +806,25 @@ if sel in all_data:
             st.error(f"🛑 DONHI NAKO - {why_data['verdict']} / {court_data['verdict']}")
         else:
             st.warning(f"⏳ DONHI WAIT - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Level baher gela ki jo yeil to ghe.")
+st.divider()
+st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL")
+st.info("💡 Udaharan: `Aaj NIFTY var jail ka?` / `Aaj trade gheu ka?` / `Udya kay honar?` / `Court cha kay zala?` / `Konala Govt Contract milala?`")
+user_q = st.text_input("✍️ Ithe tuza Question type kar:", placeholder="Ud: Aaj NIFTY var jail ka?", key="ai_ask_input")
+col_ask1, col_ask2 = st.columns([1, 3])
+with col_ask1:
+    ask_btn = st.button("🤖 AI LA VICHAR", key="ai_ask_btn", use_container_width=True)
+with col_ask2:
+    quick_q = st.selectbox("🚀 Lagich Vichar - Ek dab:", ["", "Aaj NIFTY var jail ka?", "Aaj NIFTY khali jail ka?", "Aaj trade gheu ka?", "Udya kay honar?", "Konala Govt Contract milala?", "Court cha kay zala?", "FII paisa takta yet ka?"], key="ai_quick_q")
+final_q = user_q if user_q else quick_q
+if ask_btn and final_q:
+    with st.spinner("🤖 AI Purn Study kartoy - Pre-Market + Ka Vadhtoy + Ka Padtoy + Investment + Court + Govt + Bhavishya..."):
+        ans = ai_ask_answer(final_q, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data)
+    st.success("### 🤖 AI CHA UTTAR:")
+    st.markdown(ans)
+    with st.expander("📋 Uttar Copy Karnyasathi - Ithe dakhva"):
+        st.text(ans)
+elif ask_btn and not final_q:
+    st.warning("👆 Aadhi Question type kar kinva varun ek nivad - Mag AI LA VICHAR dab")
 st.divider()
 st.markdown("## 🎯 DAILY 1 QUIZ - AAJCHA 1 QUESTION - SHIKNAY SATHI")
 quiz = get_daily_quiz()
