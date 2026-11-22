@@ -693,7 +693,6 @@ if nifty50:
     if up_count >= 35: st.success(f"🎯 **NIFTY 50 MADHE {up_count} VADHLE - {down_count} PADLE - NIFTY VAR JANAR - CE ghe**")
     elif down_count >= 35: st.error(f"🎯 **NIFTY 50 MADHE {down_count} PADLE - {up_count} VADHLE - NIFTY KHALI JANAR - PE ghe**")
     else: st.warning(f"🎯 **NIFTY 50 MADHE {up_count} VADHLE - {down_count} PADLE - BREAKOUT DAY**")
-    # --- 📈 NIFTY 50 SHARE BUY LIST - Monday sathi - NAVIN ---
     st.markdown("### 📈 NIFTY 50 - SHARE BUY LIST - Monday la Konata Share Ghyaycha?")
     st.info("💡 Options madhe 1 divasat paisa jato - Share madhe 1 mahinyat paisa banto - Donhi var laksh thev")
     st.success("**🟢 MOMENTUM BUY - Je var jatay te ghe - Te ajun var janar:**")
@@ -827,6 +826,18 @@ if sel in all_data:
         elif ai['ai_down']>=70: st.error(f"🎯 AADHI **BUY PE** GHE - Khali {ai['ai_down']}% - Support ₹{d['sup']:.0f} todla ki ghe.")
         elif ai['risk']=="HIGH": st.error(f"🛑 DONHI NAKO - Jag + Court donhi bighadle")
         else: st.warning(f"⏳ BREAKOUT DAY - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Res ₹{d['resi']:.0f} var gela tar CE, Sup ₹{d['sup']:.0f} khali gela tar PE")
+st.divider()
+st.markdown("## 📋 AAJ KITI TRADE ZALE? - Hisab")
+st.write(f"**Aaj zalele Trade:** {st.session_state['trades']} / {MAX_TRADES}")
+st.write(f"**Aajcha P&L:** ₹{st.session_state['day_pnl']:.0f}")
+st.write(f"**Max Loss Limit:** ₹{MAX_LOSS:.0f} - Hya peksha jast loss zala tar AI LOCK honar")
+if st.session_state['trades'] == 0:
+    st.info("📭 AAJ AJUN EKHI TRADE ZALA NAHI - Level todla ki 1st trade ghe")
+elif st.session_state['trades'] >= MAX_TRADES:
+    st.error(f"🛑 AAJ {MAX_TRADES} TRADE PURN ZALA - Aata parat Order janar nahi - Udyachi vaat bagh")
+else:
+    st.success(f"✅ AAJ {st.session_state['trades']} TRADE ZALA - Ajun {MAX_TRADES - st.session_state['trades']} baki aahe")
+st.warning("💡 Pakka hisab sathi Angel One -> Orders -> Trade Book bagh - Tithech khara Time + Price disel")
 st.divider()
 st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL")
 st.info("💡 Udaharan: `Monday la ekach best trade konta?` / `gold ka padat ahe` / `Aaj NIFTY var jail ka?`")
