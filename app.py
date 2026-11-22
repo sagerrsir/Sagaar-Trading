@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 st.set_page_config(page_title="SAGAR AI PRO - FINAL", layout="wide")
-st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD + NIFTY50 + TRADE CHART")
+st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD + NIFTY50 + TRADE CHART + SHARE BUY")
 CONFIG = {
     "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
     "BANKNIFTY": {"exchange": "NSE", "strike_step": 100, "qty": 15, "opt_exchange": "NFO", "prefix": "BANKNIFTY", "news_q": "Bank Nifty today HDFC ICICI", "token": "26009", "sym": "BANKNIFTY", "fut_exchange": "NFO", "fut_search": "BANKNIFTY"},
@@ -412,7 +412,6 @@ def do_study(smart, inst, fut_info, why_data, rise_data, pre_data, inv_data, cou
         else: ltp=smart.ltpData(fut_exch, fut_sym, token)['data']['ltp']
     except: ltp=float(last['close'])
     return {"score":score,"final":final,"reasons":reasons,"news":news,"df":df15,"last":last,"ltp":ltp,"sup":df15['low'].tail(20).min(),"resi":df15['high'].tail(20).max(),"instrument":inst,"token":token,"fut_sym":fut_sym,"ai":ai,"global":glob}
-# --- 📈 TRADE CHART - BUY / SL / TARGET ---
 def make_trade_chart(df, buy_level, sl_level, target1, target2, trade_name="NIFTY"):
     fig = go.Figure()
     fig.add_trace(go.Candlestick(x=df['datetime'], open=df['open'], high=df['high'], low=df['low'], close=df['close'], increasing_line_color='#26A69A', increasing_fillcolor='#26A69A', decreasing_line_color='#EF5350', decreasing_fillcolor='#EF5350', name='Candles'))
@@ -628,7 +627,7 @@ else: st.info(f"### {rise_data['verdict']}")
 st.markdown("## ⚖️ DONHI EKVATRA - AAJCHA FINAL KARAN")
 if rise_data['power'] > why_data['danger']: st.success(f"🟢 VADHNYACHA JOR JAST - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - CE chi shakyata jast")
 elif why_data['danger'] > rise_data['power']: st.error(f"🔴 PADNYACHA JOR JAST - Padtoy {why_data['danger']} vs Vadhtoy {rise_data['power']} - PE chi shakyata jast")
-else: st.warning(f"🟡 DONHI SARKHE - Vadhtoy {rise_data['power']} vs Padtoy {why_data['danger']} - BREAKOUT DAY")
+else: st.warning(f"🟡 DONHI SARKHE - Vadhtoy {rise_data['power']} vs Padtoy {rise_data['power']} - BREAKOUT DAY")
 st.markdown("## 💰 INVESTMENT STUDY - KONATYA COMPANY MADHE PAISA YETOY?")
 if inv_data['action']=="BUY": st.success(f"### {inv_data['verdict']}")
 elif inv_data['action']=="SELL": st.error(f"### {inv_data['verdict']}")
@@ -694,6 +693,22 @@ if nifty50:
     if up_count >= 35: st.success(f"🎯 **NIFTY 50 MADHE {up_count} VADHLE - {down_count} PADLE - NIFTY VAR JANAR - CE ghe**")
     elif down_count >= 35: st.error(f"🎯 **NIFTY 50 MADHE {down_count} PADLE - {up_count} VADHLE - NIFTY KHALI JANAR - PE ghe**")
     else: st.warning(f"🎯 **NIFTY 50 MADHE {up_count} VADHLE - {down_count} PADLE - BREAKOUT DAY**")
+    # --- 📈 NIFTY 50 SHARE BUY LIST - Monday sathi - NAVIN ---
+    st.markdown("### 📈 NIFTY 50 - SHARE BUY LIST - Monday la Konata Share Ghyaycha?")
+    st.info("💡 Options madhe 1 divasat paisa jato - Share madhe 1 mahinyat paisa banto - Donhi var laksh thev")
+    st.success("**🟢 MOMENTUM BUY - Je var jatay te ghe - Te ajun var janar:**")
+    for _, row in gainers.iterrows():
+        buy_p = row['Price']; sl_p = buy_p * 0.97; t1_p = buy_p * 1.05; t2_p = buy_p * 1.10
+        st.success(f"**{row['Share']}** - BUY ₹{buy_p:.0f} chya javal | SL ₹{sl_p:.0f} (-3%) | TARGET 1 ₹{t1_p:.0f} (+5%) | TARGET 2 ₹{t2_p:.0f} (+10%) | Karan: Aaj {row['Change %']:+.2f}% vadhla - FII / Result changla")
+    st.warning("**🟡 DIP BUY - Je padlay te swastat ghe - Te parat var yenar:**")
+    for _, row in losers.iterrows():
+        buy_p = row['Price']; sl_p = buy_p * 0.97; t1_p = buy_p * 1.05; t2_p = buy_p * 1.10
+        st.warning(f"**{row['Share']}** - DIP BUY ₹{buy_p:.0f} | SL ₹{sl_p:.0f} | TARGET 1 ₹{t1_p:.0f} | TARGET 2 ₹{t2_p:.0f} | Karan: Aaj {row['Change %']:+.2f}% padla - Swast miltoy - Court / War mule padla asel tar gheu naka")
+    st.error("**🔴 NAKO GHYAYCHE - Court / SEBI / Contract Cancel asel tar:**")
+    st.write(f"⚖️ Court: {court_data['verdict']} - Tya company cha share gheu naka")
+    st.write(f"🏛️ Govt Contract: {govt_data['verdict']} - Jya company la contract milala tyachach share ghe")
+    st.write(f"💰 Investment: {inv_data['verdict']} - FII jya company madhe paisa taktay tyach ghe")
+    st.info("📊 **SHARE BUY NIYAM:** Paisa 3-4 share madhe vatun ghe - Ekach share madhe sagla taku naka - Share la expiry naste - Thambun vikta yete - Dividend pan milto")
 else: st.warning("NIFTY 50 data aala nahi - Parat Try kar")
 st.subheader("🤖 SUPER AI SALLA - Sagla Ekatra")
 for inst in INSTRUMENTS:
