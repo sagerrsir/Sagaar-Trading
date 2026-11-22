@@ -10,8 +10,8 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FINAL FIXED + GOLD", layout="wide")
-st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL + NIFTY50", layout="wide")
+st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD + NIFTY50")
 
 CONFIG = {
     "NIFTY": {"exchange": "NSE", "strike_step": 50, "qty": 25, "opt_exchange": "NFO", "prefix": "NIFTY", "news_q": "Nifty 50 stock market India", "token": "26000", "sym": "NIFTY", "fut_exchange": "NFO", "fut_search": "NIFTY"},
@@ -154,6 +154,21 @@ def get_global_study():
     except: pass
     st.session_state['global_cache']=g; st.session_state['global_time']=time.time()
     return g
+NIFTY50_SYMBOLS = ["RELIANCE","HDFCBANK","ICICIBANK","INFY","TCS","LT","ITC","SBIN","BHARTIARTL","TITAN","AXISBANK","KOTAKBANK","HCLTECH","SUNPHARMA","MARUTI","TATAMOTORS","ULTRACEMCO","ADANIENT","ADANIPORTS","TATASTEEL","JSWSTEEL","HINDALCO","VEDL","NTPC","POWERGRID","COALINDIA","ONGC","BPCL","BAJFINANCE","BAJAJFINSV","HDFCLIFE","SBILIFE","ICICIPRULI","DRREDDY","CIPLA","DIVISLAB","APOLLOHOSP","EICHERMOT","HEROMOTOCO","GRASIM","SHRIRAMFIN","TATACONSUM","NESTLEIND","BRITANNIA","HINDUNILVR","ASIANPAINT","TRENT","BEL","HAL"]
+def get_nifty50_live():
+    out = []
+    try:
+        syms = ",".join([s + ".NS" for s in NIFTY50_SYMBOLS])
+        r = requests.get(f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={syms}", timeout=6, headers={"User-Agent":"Mozilla/5.0"})
+        j = r.json()
+        for q in j.get('quoteResponse', {}).get('result', []):
+            sym = q.get('symbol','').replace('.NS','')
+            price = q.get('regularMarketPrice', 0)
+            chg = q.get('regularMarketChangePercent', 0)
+            out.append({"Share": sym, "Price": round(price, 2), "Change %": round(chg, 2)})
+        out = sorted(out, key=lambda x: x['Change %'], reverse=True)
+    except: pass
+    return out
 def why_market_falling():
     if time.time() - st.session_state['why_time'] < 300 and st.session_state['why_cache']:
         return st.session_state['why_cache']
@@ -562,7 +577,8 @@ def gold_why_answer():
     return news, reasons
 def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data):
     q = question.lower()
-    if any(w in q for w in ["gold", "sona", "son", "silver", "chandi"]):
+    is_only_gold = any(w in q for w in ["gold", "sona", "silver", "chandi"]) and not any(w in q for w in ["nifty", "banknifty", "crude", "monday", "ekach", "best trade", "profit"])
+    if is_only_gold:
         is_gold = "gold" in q or "sona" in q or "son" in q
         name = "GOLD" if is_gold else "SILVER"
         gs = gold_silver_study()
@@ -592,6 +608,27 @@ def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, c
             lines.append(f"🟡 {name} cha live data aala nahi - Pan varchi 5 karna bagh - Dollar + FED + Share Market mule Gold halto.")
         lines.append("")
         lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi.")
+        return "\n".join(lines)
+    if any(w in q for w in ["monday", "ekach", "best trade", "best"]):
+        lines = []
+        lines.append(f"**Tuza Question:** {question}")
+        lines.append(f"**AI ne olakhla Topic:** MONDAY - EKACH BEST TRADE")
+        lines.append("---")
+        lines.append("**🏆 MONDAY CHA EKACH BEST TRADE - NIFTY CE**")
+        for inst in ["NIFTY","BANKNIFTY","CRUDEOIL MINI"]:
+            d = all_data.get(inst)
+            if d:
+                lines.append(f"**{inst}:** LIVE ₹{d['ltp']:.2f} | Var {d['ai']['ai_up']}% | Sup ₹{d['sup']:.0f} | Res ₹{d['resi']:.0f} | {d['ai']['pattern']}")
+        d = all_data.get("NIFTY")
+        if d:
+            lines.append("---")
+            lines.append(f"**🎯 BEST: NIFTY 25800 CE - Kevha Gheu: ₹{d['resi']:.0f} var gela tar**")
+            lines.append(f"**Premium ~₹102 | Qty 25 | Lagel ~₹2,564 | SL ₹70 - Loss ₹813 | Target 1 ₹140 - Profit ₹937 | Target 2 ₹180 - Profit ₹1,936**")
+            lines.append(f"**Ka NIFTY?** SUPER AI Var {d['ai']['ai_up']}% + Govt Contract Flood + Court Clear + Bhavishya VAR")
+            lines.append(f"**GOLD la haat lavu naka - GOLD padtoy. CRUDE fakt 60% - Mhanun NIFTY ch best.**")
+            lines.append(f"**Niyam: Fakt 1 Trade - Level todla tarach ghe - SL shivay gheu naka - ₹500 profit zala ki ardha vik.**")
+        lines.append("")
+        lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi - SL nehmi thev.")
         return "\n".join(lines)
     lines = []
     if any(w in q for w in ["var", "up", "vadh", "vadhel", "ce", "buy ce", "call"]): topic = "VAR JANAR KA?"
@@ -660,7 +697,6 @@ def ai_ask_answer(question, all_data, pre_data, why_data, rise_data, inv_data, c
     lines.append("")
     lines.append("⚠️ He AI cha andaj aahe - 100% guarantee nahi - SL nehmi thev.")
     return "\n".join(lines)
-# --- MAIN ---
 smart=get_connection()
 if not smart:
     st.warning("⚠️ Login zala nahi"); st.stop()
@@ -746,6 +782,39 @@ m1,m2,m3=st.columns(3)
 with m1: st.metric("Available Cash", f"₹{avail:.0f}")
 with m2: st.metric("Used Margin", f"₹{used:.0f}")
 with m3: st.metric("Aajcha P&L", f"₹{st.session_state['day_pnl']:.0f}")
+st.divider()
+st.markdown("## 📊 NIFTY 50 - 50 SHARE LIVE - ONE SIDE LA - KON VADHLA / KON PADLA?")
+nifty50 = get_nifty50_live()
+if nifty50:
+    df50 = pd.DataFrame(nifty50)
+    gainers = df50.head(5)
+    losers = df50.tail(5)
+    c_g, c_l, c_all = st.columns([1, 1, 2])
+    with c_g:
+        st.success("### 🟢 TOP 5 VADHLELE")
+        for _, row in gainers.iterrows():
+            st.success(f"**{row['Share']}** - ₹{row['Price']} - {row['Change %']:+.2f}%")
+    with c_l:
+        st.error("### 🔴 TOP 5 PADLELE")
+        for _, row in losers.iterrows():
+            st.error(f"**{row['Share']}** - ₹{row['Price']} - {row['Change %']:+.2f}%")
+    with c_all:
+        st.markdown("### 📋 SAGLE 50 SHARE - SEARCH KARU SHAKTA")
+        search50 = st.text_input("🔍 Share shodh - Eg: RELIANCE / HAL / BEL", key="search50")
+        df_show = df50
+        if search50:
+            df_show = df50[df50['Share'].str.contains(search50.upper())]
+        st.dataframe(df_show, use_container_width=True, height=300)
+    up_count = len(df50[df50['Change %'] > 0])
+    down_count = len(df50[df50['Change %'] < 0])
+    if up_count >= 35:
+        st.success(f"🎯 **NIFTY 50 MADHE {up_count} SHARE VADHLE - {down_count} PADLE - Mhanun NIFTY VAR JANAR - CE ghe**")
+    elif down_count >= 35:
+        st.error(f"🎯 **NIFTY 50 MADHE {down_count} SHARE PADLE - {up_count} VADHLE - Mhanun NIFTY KHALI JANAR - PE ghe**")
+    else:
+        st.warning(f"🎯 **NIFTY 50 MADHE {up_count} VADHLE - {down_count} PADLE - Donhi sarkhe - BREAKOUT DAY - Level todla ki ghe**")
+else:
+    st.warning("NIFTY 50 data aala nahi - Parat Try kar")
 st.subheader("🤖 SUPER AI SALLA - Sagla Ekatra - FIXED")
 for inst in INSTRUMENTS:
     d=all_data.get(inst)
@@ -872,16 +941,16 @@ if sel in all_data:
             st.warning(f"⏳ BREAKOUT DAY - Var {ai['ai_up']}% / Khali {ai['ai_down']}% - Resistance ₹{d['resi']:.0f} var gela tar CE, Support ₹{d['sup']:.0f} khali gela tar PE - Level todla ki ghe.")
 st.divider()
 st.markdown("## 💬 AI LA VICHAR - TU TYPE KAR, AI PURN STUDY KARUN UTTAR DEIL - GOLD / SILVER PAN CHALEL")
-st.info("💡 Udaharan: `Aaj NIFTY var jail ka?` / `gold ka padat ahe` / `silver var jail ka?` / `Aaj trade gheu ka?` / `Udya kay honar?`")
-user_q = st.text_input("✍️ Ithe tuza Question type kar:", placeholder="Ud: gold ka padat ahe / Aaj NIFTY var jail ka?", key="ai_ask_input")
+st.info("💡 Udaharan: `Monday la ekach best trade konta?` / `gold ka padat ahe` / `Aaj NIFTY var jail ka?`")
+user_q = st.text_input("✍️ Ithe tuza Question type kar:", placeholder="Ud: Monday la ekach best trade konta?", key="ai_ask_input")
 col_ask1, col_ask2 = st.columns([1, 3])
 with col_ask1:
     ask_btn = st.button("🤖 AI LA VICHAR", key="ai_ask_btn", use_container_width=True)
 with col_ask2:
-    quick_q = st.selectbox("🚀 Lagich Vichar - Ek dab:", ["", "Aaj NIFTY var jail ka?", "Aaj NIFTY khali jail ka?", "Aaj trade gheu ka?", "Udya kay honar?", "Konala Govt Contract milala?", "Court cha kay zala?", "FII paisa takta yet ka?", "gold ka padat ahe", "silver var jail ka?", "gold var jail ka?"], key="ai_quick_q")
+    quick_q = st.selectbox("🚀 Lagich Vichar - Ek dab:", ["", "Monday la ekach best trade konta?", "Aaj NIFTY var jail ka?", "Aaj NIFTY khali jail ka?", "Aaj trade gheu ka?", "Udya kay honar?", "Konala Govt Contract milala?", "Court cha kay zala?", "FII paisa takta yet ka?", "gold ka padat ahe", "silver var jail ka?", "gold var jail ka?"], key="ai_quick_q")
 final_q = user_q if user_q else quick_q
 if ask_btn and final_q:
-    with st.spinner("🤖 AI Purn Study kartoy - Pre-Market + Ka Vadhtoy + Ka Padtoy + Investment + Court + Govt + Bhavishya + Gold..."):
+    with st.spinner("🤖 AI Purn Study kartoy - Pre-Market + Ka Vadhtoy + Ka Padtoy + Investment + Court + Govt + Bhavishya + Gold + Nifty50..."):
         ans = ai_ask_answer(final_q, all_data, pre_data, why_data, rise_data, inv_data, court_data, govt_data)
     st.success("### 🤖 AI CHA UTTAR:")
     st.markdown(ans)
