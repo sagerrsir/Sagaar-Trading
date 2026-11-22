@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from SmartApi import SmartConnect
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="SAGAR AI PRO - FINAL + NIFTY50", layout="wide")
+st.set_page_config(page_title="SAGAR AI PRO - FINAL + NIFTY50 FIX", layout="wide")
 st.title("🤖 SAGAR AI PRO - PRE-MARKET + KA PADTOY + KA VADHTOY + INVESTMENT + COURT + GOVT + QUIZ + BHAVISHYA + ASK AI + GOLD + NIFTY50")
 
 CONFIG = {
@@ -155,19 +155,36 @@ def get_global_study():
     st.session_state['global_cache']=g; st.session_state['global_time']=time.time()
     return g
 NIFTY50_SYMBOLS = ["RELIANCE","HDFCBANK","ICICIBANK","INFY","TCS","LT","ITC","SBIN","BHARTIARTL","TITAN","AXISBANK","KOTAKBANK","HCLTECH","SUNPHARMA","MARUTI","TATAMOTORS","ULTRACEMCO","ADANIENT","ADANIPORTS","TATASTEEL","JSWSTEEL","HINDALCO","VEDL","NTPC","POWERGRID","COALINDIA","ONGC","BPCL","BAJFINANCE","BAJAJFINSV","HDFCLIFE","SBILIFE","ICICIPRULI","DRREDDY","CIPLA","DIVISLAB","APOLLOHOSP","EICHERMOT","HEROMOTOCO","GRASIM","SHRIRAMFIN","TATACONSUM","NESTLEIND","BRITANNIA","HINDUNILVR","ASIANPAINT","TRENT","BEL","HAL"]
-def get_nifty50_live():
+def get_nifty50_live(smart=None):
     out = []
-    try:
-        syms = ",".join([s + ".NS" for s in NIFTY50_SYMBOLS])
-        r = requests.get(f"https://query1.finance.yahoo.com/v7/finance/quote?symbols={syms}", timeout=6, headers={"User-Agent":"Mozilla/5.0"})
-        j = r.json()
-        for q in j.get('quoteResponse', {}).get('result', []):
-            sym = q.get('symbol','').replace('.NS','')
-            price = q.get('regularMarketPrice', 0)
-            chg = q.get('regularMarketChangePercent', 0)
-            out.append({"Share": sym, "Price": round(price, 2), "Change %": round(chg, 2)})
-        out = sorted(out, key=lambda x: x['Change %'], reverse=True)
-    except: pass
+    for sym in NIFTY50_SYMBOLS[:50]:
+        try:
+            r = requests.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}.NS?interval=1d&range=2d", timeout=3, headers={"User-Agent":"Mozilla/5.0"})
+            j = r.json()
+            res = j['chart']['result'][0]
+            closes = res['indicators']['quote'][0]['close']
+            closes = [c for c in closes if c is not None]
+            if len(closes) >= 2:
+                chg = (closes[-1]-closes[-2])/closes[-2]*100
+                out.append({"Share": sym, "Price": round(closes[-1], 2), "Change %": round(chg, 2)})
+        except:
+            continue
+    if len(out) < 5 and smart is not None:
+        try:
+            for sym in NIFTY50_SYMBOLS:
+                try:
+                    time.sleep(0.1)
+                    res = smart.searchScrip("NSE", sym)
+                    if res and res.get('data'):
+                        tok = res['data'][0].get('symboltoken')
+                        ltp_data = smart.ltpData("NSE", sym, tok)
+                        price = float(ltp_data['data']['ltp'])
+                        out.append({"Share": sym, "Price": round(price, 2), "Change %": 0.0})
+                except:
+                    continue
+        except:
+            pass
+    out = sorted(out, key=lambda x: x['Change %'], reverse=True)
     return out
 def why_market_falling():
     if time.time() - st.session_state['why_time'] < 300 and st.session_state['why_cache']:
@@ -784,7 +801,7 @@ with m2: st.metric("Used Margin", f"₹{used:.0f}")
 with m3: st.metric("Aajcha P&L", f"₹{st.session_state['day_pnl']:.0f}")
 st.divider()
 st.markdown("## 📊 NIFTY 50 - 50 SHARE LIVE - ONE SIDE LA - KON VADHLA / KON PADLA?")
-nifty50 = get_nifty50_live()
+nifty50 = get_nifty50_live(smart)
 if nifty50:
     df50 = pd.DataFrame(nifty50)
     gainers = df50.head(5)
